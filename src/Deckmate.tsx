@@ -14,7 +14,7 @@ export default function Deckmate({
     row: number;
     col: number;
   } | null>(null);
-  const [currentTurn, setCurrentTurn] = useState<string | null>(null);
+  const [currentTurn, setCurrentTurn] = useState<string>('');
 
   useEffect(() => {
     const boardRef = ref(database, `games/${gameId}/board`);
@@ -26,7 +26,7 @@ export default function Deckmate({
         data.every((row) => Array.isArray(row) && row.length === 8)
       ) {
         const transformedBoard = data.map((row) =>
-          row.map((cell) => (cell === '_' ? null : cell))
+          row.map((cell: any) => (cell === '_' ? null : cell))
         );
         setBoard(transformedBoard);
       } else {
@@ -70,38 +70,33 @@ export default function Deckmate({
     toRow: number,
     toCol: number
   ) {
-    setBoard((prevBoard) => {
-      const newBoard = prevBoard.map((row) => [...row]);
-      const piece = newBoard[fromRow][fromCol];
-      if (Math.abs(toRow - fromRow) === 2 || Math.abs(toCol - fromCol) === 2) {
-        const midRow = fromRow + Math.sign(toRow - fromRow);
-        const midCol = fromCol + Math.sign(toCol - fromCol);
-        newBoard[midRow][midCol] = '_';
-      }
-      newBoard[toRow][toCol] = piece;
-      newBoard[fromRow][fromCol] = '_';
+    const newBoard = board.map((row) => [...row]);
+    const piece = newBoard[fromRow][fromCol];
+    if (Math.abs(toRow - fromRow) === 2 || Math.abs(toCol - fromCol) === 2) {
+      const midRow = fromRow + Math.sign(toRow - fromRow);
+      const midCol = fromCol + Math.sign(toCol - fromCol);
+      newBoard[midRow][midCol] = null;
+    }
+    newBoard[toRow][toCol] = piece;
+    newBoard[fromRow][fromCol] = null;
 
-      const completeBoard = Array(8)
-        .fill(null)
-        .map((_, rIdx) =>
-          Array(8)
-            .fill(null)
-            .map((_, cIdx) => newBoard[rIdx]?.[cIdx] ?? '_')
-        );
-      set(ref(database, `games/${gameId}/board`), completeBoard);
+    setBoard(newBoard);
+    set(ref(database, `games/${gameId}/board`), encodeBoard(newBoard));
 
-      const nextTurn = playerName === 'Spieler A' ? 'Spieler B' : 'Spieler A';
-      set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
-
-      return completeBoard;
-    });
+    const nextTurn = playerName === 'Spieler A' ? 'Spieler B' : 'Spieler A';
+    set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
   }
 
   function resetBoard() {
     const defaultBoard = initializeBoard();
     setBoard(defaultBoard);
-    set(ref(database, `games/${gameId}/board`), defaultBoard);
+    set(ref(database, `games/${gameId}/board`), encodeBoard(defaultBoard));
   }
+
+  function encodeBoard(board: Piece[][]): string[][] {
+    return board.map((row) => row.map((cell) => (cell === null ? '_' : cell)));
+  }
+
   function isValidMove(
     fromRow: number,
     fromCol: number,
