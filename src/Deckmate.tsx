@@ -17,7 +17,7 @@ export default function Deckmate({
   const [currentTurn, setCurrentTurn] = useState<string>('');
 
   useEffect(() => {
-    const boardRef = ref(database, `games/${gameId}/board`);
+    const boardRef = ref(database, `games/${gameId!}/board`);
     onValue(boardRef, (snapshot) => {
       const data = snapshot.val();
       if (
@@ -34,11 +34,11 @@ export default function Deckmate({
       }
     });
 
-    const turnRef = ref(database, `games/${gameId}/currentTurn`);
+    const turnRef = ref(database, `games/${gameId!}/currentTurn`);
     onValue(turnRef, (snapshot) => {
       const value = snapshot.val();
       if (!value) {
-        set(turnRef, playerName); // erster Spieler setzt sich selbst als startenden Spieler
+        set(turnRef, playerName!); // erster Spieler setzt sich selbst als startenden Spieler
       } else {
         setCurrentTurn(value);
       }
@@ -81,16 +81,16 @@ export default function Deckmate({
     newBoard[fromRow][fromCol] = null;
 
     setBoard(newBoard);
-    set(ref(database, `games/${gameId}/board`), encodeBoard(newBoard));
+    set(ref(database, `games/${gameId!}/board`), encodeBoard(newBoard));
 
     const nextTurn = playerName === 'Spieler A' ? 'Spieler B' : 'Spieler A';
-    set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
+    set(ref(database, `games/${gameId!}/currentTurn`), nextTurn);
   }
 
   function resetBoard() {
     const defaultBoard = initializeBoard();
     setBoard(defaultBoard);
-    set(ref(database, `games/${gameId}/board`), encodeBoard(defaultBoard));
+    set(ref(database, `games/${gameId!}/board`), encodeBoard(defaultBoard));
   }
 
   function encodeBoard(board: Piece[][]): string[][] {
@@ -177,6 +177,8 @@ export default function Deckmate({
   }
 
   function isSameTeam(piece1: Piece, piece2: Piece): boolean {
+    if (!piece1 || !piece2) return false;
+  
     const mannschaft = '●';
     const offiziersFiguren = ['♜', '♞', '♝', '♛', '♚', '♟'];
     return (
@@ -184,6 +186,7 @@ export default function Deckmate({
       (offiziersFiguren.includes(piece1) && offiziersFiguren.includes(piece2))
     );
   }
+  
 
   function isValidRookMove(
     fromRow: number,
