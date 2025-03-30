@@ -41,7 +41,9 @@ export default function Deckmate({
     onValue(turnRef, (snapshot) => {
       const value = snapshot.val();
       if (!value) {
-        set(turnRef, playerName); // erster Spieler setzt sich selbst als startenden Spieler
+        if (playerName) {
+          set(turnRef, playerName);
+        }
       } else {
         setCurrentTurn(value);
       }
@@ -87,7 +89,9 @@ export default function Deckmate({
     set(ref(database, `games/${gameId}/board`), encodeBoard(newBoard));
 
     const nextTurn = playerName === 'Spieler A' ? 'Spieler B' : 'Spieler A';
-    set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
+    if (nextTurn) {
+      set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
+    }
   }
 
   function resetBoard() {
@@ -180,6 +184,7 @@ export default function Deckmate({
   }
 
   function isSameTeam(piece1: Piece, piece2: Piece): boolean {
+    if (!piece1 || !piece2) return false;
     const mannschaft = '●';
     const offiziersFiguren = ['♜', '♞', '♝', '♛', '♚', '♟'];
     return (
