@@ -1,6 +1,4 @@
-// @ts-ignore
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState } from 'react'; // ⬅️ useEffect entfernt
 import Deckmate from './Deckmate';
 import Login from './Login';
 import Lobby from './Lobby';

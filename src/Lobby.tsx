@@ -1,89 +1,64 @@
-// @ts-ignore
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { firestore } from './firebaseConfig'; // ✅ Wird genutzt
+import { doc, getDoc, setDoc } from 'firebase/firestore'; // ✅ Wird genutzt
 
-import {
-  getFirestore,
-  collection,
-  addDoc,
-  onSnapshot,
-  deleteDoc,
-  doc,
-} from 'firebase/firestore';
-import { firestore } from './firebaseConfig';
-
-interface LobbyProps {
-  playerName: string;
-  onJoinGame: (gameId: string) => void;
+interface LoginProps {
+  onLogin: (name: string) => void;
 }
 
-export default function Lobby({ playerName, onJoinGame }: LobbyProps) {
-  const [games, setGames] = useState<any[]>([]);
-  const [newGameName, setNewGameName] = useState('');
+export default function Login({ onLogin }: LoginProps) {
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    const gamesRef = collection(firestore, 'games');
-    const unsubscribe = onSnapshot(gamesRef, (snapshot) => {
-      const gamesList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setGames(gamesList);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleCreateGame = async () => {
-    if (!newGameName.trim()) return;
-    if (games.length >= 10) {
-      alert(
-        'Maximale Anzahl von 10 Spielen erreicht. Bitte zuerst ein Spiel löschen.'
-      );
+  const handleLogin = async () => {
+    if (!name || !password) {
+      setError('Name und Passwort erforderlich');
       return;
     }
-    const docRef = await addDoc(collection(firestore, 'games'), {
-      name: newGameName,
-      createdAt: new Date(),
-    });
-    onJoinGame(docRef.id);
-  };
 
-  const handleDeleteGame = async (gameId: string) => {
-    if (confirm('Dieses Spiel wirklich löschen?')) {
-      await deleteDoc(doc(firestore, 'games', gameId));
+    const userRef = doc(firestore, 'players', name);
+    const docSnap = await getDoc(userRef);
+
+    if (docSnap.exists()) {
+      const userData = docSnap.data();
+      if (userData.password === password) {
+        console.log(`✅ Login erfolgreich als ${name}`);
+        onLogin(name);
+      } else {
+        setError('❌ Falsches Passwort');
+      }
+    } else {
+      // Spieler neu anlegen
+      await setDoc(userRef, { name, password });
+      console.log(`🆕 Neuer Spieler erstellt: ${name}`);
+      onLogin(name);
     }
   };
 
   return (
     <div style={{ padding: 20 }}>
-      <h2>🧭 Lobby</h2>
-
-      <div style={{ marginBottom: 20 }}>
-        <input
-          type="text"
-          placeholder="Spielname"
-          value={newGameName}
-          onChange={(e) => setNewGameName(e.target.value)}
-          style={{ marginRight: 10, padding: 5 }}
-        />
-        <button onClick={handleCreateGame}>➕ Spiel erstellen</button>
-      </div>
-
-      <h3>🎮 Aktive Spiele:</h3>
-      <ul>
-        {games.map((game) => (
-          <li key={game.id} style={{ marginBottom: 8 }}>
-            {game.name}{' '}
-            <button onClick={() => onJoinGame(game.id)}>Beitreten</button>{' '}
-            <button
-              onClick={() => handleDeleteGame(game.id)}
-              style={{ marginLeft: 8, color: 'red' }}
-            >
-              ❌ Löschen
-            </button>
-          </li>
-        ))}
-      </ul>
+      <h2>🔐 Anmeldung</h2>
+      <input
+        type="text"
+        placeholder="Name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        style={{ marginBottom: 10, padding: 5 }}
+      />
+      <br />
+      <input
+        type="password"
+        placeholder="Passwort"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        style={{ marginBottom: 10, padding: 5 }}
+      />
+      <br />
+      <button onClick={handleLogin} style={{ padding: '8px 16px' }}>
+        Einloggen / Registrieren
+      </button>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
     </div>
   );
 }

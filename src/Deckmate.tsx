@@ -1,6 +1,6 @@
 // @ts-ignore
 import React from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 import './App.css';
 import { database, ref, set, onValue } from './firebaseConfig';
@@ -19,7 +19,7 @@ export default function Deckmate({
   } | null>(null);
   const [currentTurn, setCurrentTurn] = useState<string>('');
 
-  React.useEffect(() => {
+  useEffect(() => {
     const boardRef = ref(database, `games/${gameId}/board`);
     onValue(boardRef, (snapshot) => {
       const data = snapshot.val();
