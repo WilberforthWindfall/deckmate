@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+// @ts-ignore
+import React from 'react';
+import { useState, useEffect } from 'react';
+
 import { database } from './firebaseConfig';
 import { firestore } from './firebaseConfig';
 import { doc, getDoc, setDoc } from 'firebase/firestore';

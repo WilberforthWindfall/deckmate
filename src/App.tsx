@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+// @ts-ignore
+import React from 'react';
+import { useState, useEffect } from 'react';
 import Deckmate from './Deckmate';
 import Login from './Login';
 import Lobby from './Lobby';
