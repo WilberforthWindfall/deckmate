@@ -1,4 +1,4 @@
-import React, { useState } from 'react'; // ⬅️ useEffect entfernt
+import { useState } from 'react'; // ⬅️ useEffect entfernt
 import Deckmate from './Deckmate';
 import Login from './Login';
 import Lobby from './Lobby';
