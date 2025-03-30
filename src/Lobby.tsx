@@ -5,6 +5,8 @@ import {
   onSnapshot,
   deleteDoc,
   doc,
+  getDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { firestore } from './firebaseConfig';
 
@@ -32,14 +34,37 @@ export default function Lobby({ playerName, onJoinGame }: LobbyProps) {
   const handleCreateGame = async () => {
     if (!newGameName.trim()) return;
     if (games.length >= 10) {
-      alert('Maximale Anzahl von 10 Spielen erreicht. Bitte zuerst ein Spiel löschen.');
+      alert(
+        'Maximale Anzahl von 10 Spielen erreicht. Bitte zuerst ein Spiel löschen.'
+      );
       return;
     }
     const docRef = await addDoc(collection(firestore, 'games'), {
       name: newGameName,
       createdAt: new Date(),
+      players: {
+        a: playerName,
+      },
+      currentTurn: playerName,
     });
     onJoinGame(docRef.id);
+  };
+
+  const handleJoinGame = async (gameId: string) => {
+    const gameRef = doc(firestore, 'games', gameId);
+    const gameSnap = await getDoc(gameRef);
+    const gameData = gameSnap.data();
+
+    if (!gameData) return;
+
+    // Setze Spieler B, wenn noch keiner eingetragen
+    if (!gameData.players?.b && gameData.players?.a !== playerName) {
+      await updateDoc(gameRef, {
+        'players.b': playerName,
+      });
+    }
+
+    onJoinGame(gameId);
   };
 
   const handleDeleteGame = async (gameId: string) => {
@@ -50,7 +75,7 @@ export default function Lobby({ playerName, onJoinGame }: LobbyProps) {
 
   return (
     <div style={{ padding: 20 }}>
-      <h2>🧭 Lobby – Willkommen, {playerName}</h2>
+      <h2>🧭 Lobby</h2>
 
       <div style={{ marginBottom: 20 }}>
         <input
@@ -68,7 +93,7 @@ export default function Lobby({ playerName, onJoinGame }: LobbyProps) {
         {games.map((game) => (
           <li key={game.id} style={{ marginBottom: 8 }}>
             {game.name}{' '}
-            <button onClick={() => onJoinGame(game.id)}>Beitreten</button>{' '}
+            <button onClick={() => handleJoinGame(game.id)}>Beitreten</button>{' '}
             <button
               onClick={() => handleDeleteGame(game.id)}
               style={{ marginLeft: 8, color: 'red' }}

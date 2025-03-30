@@ -1,8 +1,6 @@
 // @ts-ignore
 import React from 'react';
 import { useState, useEffect } from 'react';
-
-import './App.css';
 import { database, ref, set, onValue } from './firebaseConfig';
 
 export default function Deckmate({
@@ -13,14 +11,15 @@ export default function Deckmate({
   gameId: string;
 }) {
   const [board, setBoard] = useState<Piece[][]>(initializeBoard());
-  const [selectedPiece, setSelectedPiece] = useState<{
-    row: number;
-    col: number;
-  } | null>(null);
+  const [selectedPiece, setSelectedPiece] = useState<{ row: number; col: number } | null>(null);
   const [currentTurn, setCurrentTurn] = useState<string>('');
+  const [players, setPlayers] = useState<{ a: string; b: string }>({ a: '', b: '' });
 
   useEffect(() => {
     const boardRef = ref(database, `games/${gameId}/board`);
+    const playersRef = ref(database, `games/${gameId}/players`);
+    const turnRef = ref(database, `games/${gameId}/currentTurn`);
+
     onValue(boardRef, (snapshot) => {
       const data = snapshot.val();
       if (
@@ -37,13 +36,17 @@ export default function Deckmate({
       }
     });
 
-    const turnRef = ref(database, `games/${gameId}/currentTurn`);
+    onValue(playersRef, (snapshot) => {
+      const val = snapshot.val();
+      if (val?.a && val?.b) {
+        setPlayers({ a: val.a, b: val.b });
+      }
+    });
+
     onValue(turnRef, (snapshot) => {
       const value = snapshot.val();
       if (!value) {
-        if (playerName) {
-          set(turnRef, playerName);
-        }
+        set(turnRef, playerName); // falls leer: Spieler startet automatisch
       } else {
         setCurrentTurn(value);
       }
@@ -69,12 +72,7 @@ export default function Deckmate({
     }
   }
 
-  function movePiece(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+  function movePiece(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const newBoard = board.map((row) => [...row]);
     const piece = newBoard[fromRow][fromCol];
     if (Math.abs(toRow - fromRow) === 2 || Math.abs(toCol - fromCol) === 2) {
@@ -88,10 +86,8 @@ export default function Deckmate({
     setBoard(newBoard);
     set(ref(database, `games/${gameId}/board`), encodeBoard(newBoard));
 
-    const nextTurn = playerName === 'Spieler A' ? 'Spieler B' : 'Spieler A';
-    if (nextTurn) {
-      set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
-    }
+    const nextTurn = playerName === players.a ? players.b : players.a;
+    set(ref(database, `games/${gameId}/currentTurn`), nextTurn);
   }
 
   function resetBoard() {
@@ -104,12 +100,7 @@ export default function Deckmate({
     return board.map((row) => row.map((cell) => (cell === null ? '_' : cell)));
   }
 
-  function isValidMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+  function isValidMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const piece = board[fromRow][fromCol];
     if (!piece || (fromRow === toRow && fromCol === toCol)) return false;
     return piece === '●'
@@ -117,21 +108,12 @@ export default function Deckmate({
       : isValidOffizierMove(piece, fromRow, fromCol, toRow, toCol);
   }
 
-  function isValidMannschaftMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+  function isValidMannschaftMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const direction = -1;
     const rowDiff = toRow - fromRow;
     const colDiff = toCol - fromCol;
     if (rowDiff > 0) return false;
-    if (
-      rowDiff === direction &&
-      Math.abs(colDiff) === 1 &&
-      board[toRow][toCol] === null
-    )
+    if (rowDiff === direction && Math.abs(colDiff) === 1 && board[toRow][toCol] === null)
       return true;
     if (rowDiff === -2 && (colDiff === 2 || colDiff === -2 || colDiff === 0)) {
       const midRow = fromRow + (toRow - fromRow) / 2;
@@ -184,72 +166,49 @@ export default function Deckmate({
   }
 
   function isSameTeam(piece1: Piece, piece2: Piece): boolean {
-    if (!piece1 || !piece2) return false;
     const mannschaft = '●';
     const offiziersFiguren = ['♜', '♞', '♝', '♛', '♚', '♟'];
+  
+    if (!piece1 || !piece2) return false; // 👈 prüfe auf null
+  
     return (
       (piece1 === mannschaft && piece2 === mannschaft) ||
       (offiziersFiguren.includes(piece1) && offiziersFiguren.includes(piece2))
     );
   }
+  
 
-  function isValidRookMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+  function isValidRookMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     return (
-      (fromRow === toRow || fromCol === toCol) &&
-      isPathClear(fromRow, fromCol, toRow, toCol)
+      (fromRow === toRow || fromCol === toCol) && isPathClear(fromRow, fromCol, toRow, toCol)
     );
   }
-  function isValidBishopMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isValidBishopMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     return (
       Math.abs(fromRow - toRow) === Math.abs(fromCol - toCol) &&
       isPathClear(fromRow, fromCol, toRow, toCol)
     );
   }
-  function isValidQueenMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isValidQueenMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     return (
       isValidRookMove(fromRow, fromCol, toRow, toCol) ||
       isValidBishopMove(fromRow, fromCol, toRow, toCol)
     );
   }
-  function isValidKingMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isValidKingMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     return Math.abs(fromRow - toRow) <= 1 && Math.abs(fromCol - toCol) <= 1;
   }
-  function isValidKnightMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isValidKnightMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const rowDiff = Math.abs(fromRow - toRow);
     const colDiff = Math.abs(fromCol - toCol);
     return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
   }
-  function isValidPawnMove(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isValidPawnMove(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const direction = 1;
     return (
       (fromCol === toCol &&
@@ -260,12 +219,8 @@ export default function Deckmate({
         board[toRow][toCol] !== null)
     );
   }
-  function isPathClear(
-    fromRow: number,
-    fromCol: number,
-    toRow: number,
-    toCol: number
-  ) {
+
+  function isPathClear(fromRow: number, fromCol: number, toRow: number, toCol: number) {
     const rowStep = fromRow === toRow ? 0 : fromRow < toRow ? 1 : -1;
     const colStep = fromCol === toCol ? 0 : fromCol < toCol ? 1 : -1;
     let r = fromRow + rowStep,
@@ -289,9 +244,7 @@ export default function Deckmate({
         backgroundColor: '#ddd',
       }}
     >
-      <h1
-        style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px' }}
-      >
+      <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px' }}>
         Deckmate: Das Spiel – Spieler: {playerName}
       </h1>
       <h2 style={{ color: '#333' }}>
@@ -300,6 +253,7 @@ export default function Deckmate({
           ? 'Du bist am Zug'
           : `${currentTurn} ist am Zug`}
       </h2>
+
       <div
         style={{
           display: 'grid',
@@ -323,8 +277,7 @@ export default function Deckmate({
                 fontSize: '20px',
                 fontWeight: 'bold',
                 border: '1px solid black',
-                backgroundColor:
-                  (rIdx + cIdx) % 2 === 0 ? '#eeeed2' : '#769656',
+                backgroundColor: (rIdx + cIdx) % 2 === 0 ? '#eeeed2' : '#769656',
                 outline:
                   selectedPiece?.row === rIdx && selectedPiece?.col === cIdx
                     ? '3px solid red'
@@ -338,6 +291,7 @@ export default function Deckmate({
           ))
         )}
       </div>
+
       <button
         onClick={resetBoard}
         style={{
