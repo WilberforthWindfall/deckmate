@@ -25,13 +25,12 @@ npm test        # Regel-Tests
 npm run build   # Produktions-Build
 ```
 
-## Einmalige Einrichtung in Firebase (Projekt deckmate-a9165)
+## Einmalige Einrichtung in Firebase (Projekt deckmate-633e4)
 
 1. **Authentication → Sign-in method:** Anbieter „E-Mail/Passwort“ aktivieren.
 2. **Authentication → Settings → Autorisierte Domains:** die Vercel-Domain eintragen (z. B. `deckmate.vercel.app`), sonst schlägt die Anmeldung dort fehl.
-3. **Firestore → Regeln:** Inhalt von `firestore.rules` einfügen und veröffentlichen.
+3. **Firestore:** Datenbank anlegen (Standort Frankfurt, `europe-west3`), dann unter **Regeln** Inhalt von `firestore.rules` einfügen und veröffentlichen.
 4. **Firestore → Indizes:** die beiden Indizes aus `firestore.indexes.json` anlegen. Alternativ öffnet die Lobby beim ersten Laden einen Fehler mit direktem Link in der Browser-Konsole.
-5. **Firestore → Daten:** die alte Sammlung `players` aus Version 1 löschen. Sie enthält Passwörter im Klartext.
 
 ## Bekannte Grenzen
 
