@@ -1,54 +1,40 @@
-# React + TypeScript + Vite
+# Deckmate
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Mannschaft gegen Offiziere: ein rundenbasiertes Brettspiel aus Dame, Schach, Würfeln und Karten, entstanden im LARP-Umfeld der Crimson Guard. Gespielt wird im Browser an einem 3D-Spieltisch, allein an einem Gerät oder online gegeneinander.
 
-Currently, two official plugins are available:
+## Aufbau
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+| Bereich | Datei |
+|---|---|
+| Regel-Engine (reine Funktionen, ohne Grafik) | `src/game/rules.ts` |
+| Spieleraktionen für lokal und online | `src/game/actions.ts` |
+| Tests der Regeln | `src/game/rules.test.ts` |
+| 3D-Spieltisch (Three.js) | `src/three/Table3D.ts` |
+| Spielansicht mit Seitenleiste | `src/components/GameView.tsx` |
+| Anmeldung, Lobby, Partien | `src/auth.tsx`, `src/online.ts`, `src/pages/` |
+| Firestore-Sicherheitsregeln und Indizes | `firestore.rules`, `firestore.indexes.json` |
 
-## Expanding the ESLint configuration
+Der Spielstand einer Online-Partie liegt vollständig in `games/{id}.state`. Jede Aktion wird in einer Firestore-Transaktion angewendet, damit sich zwei Browser nie gegenseitig überschreiben.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Lokal starten
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev     # Entwicklungsserver
+npm test        # Regel-Tests
+npm run build   # Produktions-Build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Einmalige Einrichtung in Firebase (Projekt deckmate-a9165)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. **Authentication → Sign-in method:** Anbieter „E-Mail/Passwort“ aktivieren.
+2. **Authentication → Settings → Autorisierte Domains:** die Vercel-Domain eintragen (z. B. `deckmate.vercel.app`), sonst schlägt die Anmeldung dort fehl.
+3. **Firestore → Regeln:** Inhalt von `firestore.rules` einfügen und veröffentlichen.
+4. **Firestore → Indizes:** die beiden Indizes aus `firestore.indexes.json` anlegen. Alternativ öffnet die Lobby beim ersten Laden einen Fehler mit direktem Link in der Browser-Konsole.
+5. **Firestore → Daten:** die alte Sammlung `players` aus Version 1 löschen. Sie enthält Passwörter im Klartext.
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
-```
+## Bekannte Grenzen
+
+- Würfel und Kartenverteilung laufen im Browser. Für Schutz gegen Schummeln müssen sie in Cloud Functions wandern (Blaze-Tarif).
+- Handkarten liegen offen auf dem Tisch.
+- Eine Seite ohne legale Züge verliert noch nicht automatisch.

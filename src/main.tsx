@@ -1,13 +1,30 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import App from './App';
-import './index.css';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth.tsx';
+import Login from './pages/Login.tsx';
+import Lobby from './pages/Lobby.tsx';
+import OnlineGame from './pages/OnlineGame.tsx';
+import LocalGame from './pages/LocalGame.tsx';
+import './styles.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
+function Protected({ children }: { children: JSX.Element }) {
+  const { user, ready } = useAuth();
+  if (!ready) return <div className="page"><p className="rule">Lade …</p></div>;
+  return user ? children : <Login />;
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Protected><Lobby /></Protected>} />
+          <Route path="/spiel/:id" element={<Protected><OnlineGame /></Protected>} />
+          <Route path="/lokal" element={<LocalGame />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  </StrictMode>,
 );
