@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyBattle, armyAt, autoBattle, battleGame, newCampaign, orderProblem, sealOrders, type Campaign } from './engine.ts';
+import { applyBattle, armyAt, autoBattle, battleGame, movePreview, newCampaign, orderProblem, sealOrders, type Campaign } from './engine.ts';
 import { ADJ } from './map.ts';
 
 const rng = () => 0.42;
@@ -139,4 +139,27 @@ test('Gebäude: Kaserne rekrutiert 4, Markt bringt Gold, Mauer stärkt Verteidig
   Object.assign(e.armies.find((a) => a.id === 'a1')!, { prov: 'weidenau', size: 6 });
   e = seal(e, [{ kind: 'move', army: 'a1', to: 'ostkueste' }]);
   assert.match(e.report.join(' '), /klar ab/);
+});
+
+test('Vorschau: leere Ziele, eigene Heere und Kräfteverhältnis', () => {
+  const c = newCampaign();
+  assert.equal(movePreview(c, 'R', 'a1', 'mittelland', []).text, 'besetzen');
+  assert.equal(movePreview(c, 'R', 'a1', 'westmark', []).text, 'verlegen');
+  const near = structuredClone(c);
+  near.armies.find((a) => a.id === 'a3')!.prov = 'mittelland';
+  near.owner.mittelland = 'K';
+  // 10 gegen 10 auf Ackerland: knapp
+  assert.equal(movePreview(near, 'R', 'a1', 'mittelland', []).tone, 'risk');
+  near.armies.find((a) => a.id === 'a3')!.size = 5;
+  assert.equal(movePreview(near, 'R', 'a1', 'mittelland', []).tone, 'ok');
+});
+
+test('Aufdecken: Auflösung merkt sich Stellung und Befehle vor dem Marsch', () => {
+  let c = newCampaign();
+  c = sealOrders(c, 'R', [{ kind: 'move', army: 'a1', to: 'mittelland' }], () => 0.5);
+  c = sealOrders(c, 'K', [{ kind: 'forage', army: 'a4' }], () => 0.5);
+  assert.equal(c.reveal?.round, 1);
+  assert.equal(c.reveal?.armies.find((a) => a.id === 'a1')?.prov, 'aldfurt');
+  assert.equal(c.reveal?.orders.K[0].kind, 'forage');
+  assert.equal(armyAt(c, 'mittelland')?.id, 'a1');
 });

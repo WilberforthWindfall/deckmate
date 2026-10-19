@@ -2,7 +2,7 @@ import { useMemo, type MouseEvent as RMouseEvent } from 'react';
 import {
   HEXES, HEX_R, HOUSES, LAND, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexPoints, hexSides, inGrid, provCenter, type House,
 } from './map.ts';
-import type { Campaign, Order } from './engine.ts';
+import type { Campaign, Order, Tone } from './engine.ts';
 
 interface Props {
   c: Campaign;
@@ -13,12 +13,23 @@ interface Props {
   /** Orders to draw as arrows (only the active house's own, never the opponent's). */
   orders: Order[];
   onProvince: (id: string, at: { x: number; y: number }) => void;
+  /** Click on an army's flag. */
+  onArmy?: (id: string) => void;
+  /** Army shown as selected (golden frame). */
+  selectedArmy?: string | null;
+  /** Small signs on target provinces, e.g. the expected outcome of a move. */
+  labels?: Record<string, { text: string; tone: Tone }>;
 }
+
+const TONE: Record<Tone, string> = { ok: '#2F6E40', risk: '#8C5A12', bad: '#7E2621', plain: '#2A3F55' };
+type Mark = 'move' | 'support' | 'forage';
 
 const pts = (p: [number, number][]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const TILE: Record<string, string> = { A: 'acker', W: 'wald', S: 'sumpf', G: 'gebirge', F: 'fluss', K: 'kueste', H: 'huegel' };
 
-export default function CampaignMap({ c, selected, targets, orders, onProvince }: Props) {
+export default function CampaignMap({ c, selected, targets, orders, onProvince, onArmy, selectedArmy, labels }: Props) {
+  const marks: Record<string, Mark> = {};
+  for (const o of orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
   const geo = useMemo(() => {
     const coast: string[] = [], prov: string[] = [];
     const house: { prov: string; other: string | null; d: string }[] = [];
@@ -122,7 +133,8 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
       {c.armies.filter((a) => !a.prov.startsWith('@')).map((a) => {
         const [x, y] = provCenter(a.prov);
         return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR}
-          selected={selected === a.prov} onClick={(e) => onProvince(a.prov, { x: e.clientX, y: e.clientY })} />;
+          selected={selectedArmy === a.id} mark={marks[a.id]} id={a.id}
+          onClick={(e) => { e.stopPropagation(); if (onArmy) onArmy(a.id); else onProvince(a.prov, { x: e.clientX, y: e.clientY }); }} />;
       })}
       {c.battles.map((b) => {
         const att = c.armies.find((x) => x.id === b.attacker)!;
@@ -135,19 +147,39 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
           </g>
         );
       })}
+      {labels && Object.entries(labels).map(([id, l]) => {
+        if (!l.text) return null;
+        const [x, y] = provCenter(id);
+        const w = l.text.length * 6.4 + 16;
+        return (
+          <g key={`l${id}`} transform={`translate(${x},${y + 50})`} pointerEvents="none">
+            <rect x={-w / 2} y={-10} width={w} height={20} rx={10} fill={TONE[l.tone]} stroke="#F1E8D2" strokeWidth={1.2} />
+            <text y={4} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={11} fill="#FFF8EC">{l.text}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
 
-function Token({ x, y, house, size, spec, selected, onClick }: {
-  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; onClick?: (e: RMouseEvent) => void;
+function Token({ x, y, house, size, spec, selected, mark, id, onClick }: {
+  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; mark?: Mark; id?: string; onClick?: (e: RMouseEvent) => void;
 }) {
   return (
-    <g transform={`translate(${x},${y})`} data-army={house} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
+    <g data-army={house} data-army-id={id} onClick={onClick}
+      style={{ cursor: onClick ? 'pointer' : undefined, transform: `translate(${x}px, ${y}px)`, transition: 'transform .9s ease-in-out' }}>
       {selected && <rect x={-29} y={-20} width={58} height={40} rx={10} fill="none" stroke="#E2C27F" strokeWidth={3} />}
       <rect x={-24} y={-15} width={48} height={30} rx={7} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={2} />
       <path d="M-15,-8 v16 M-15,-8 l9,4 l-9,4" fill="none" stroke="#FFF6F2" strokeWidth={1.5} strokeLinejoin="round" />
       <text x={6} y={5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={15} fill="#FFF8F2">{size}</text>
+      {mark && (
+        <g transform="translate(-22,13)" aria-label={mark === 'move' ? 'zieht' : mark === 'support' ? 'unterstützt' : 'fouragiert'}>
+          <circle r={8.5} fill="#F1E8D2" stroke="#1E1A15" strokeWidth={1} />
+          {mark === 'move' && <path d="M-4.5,0 H3 M0,-3.5 L4,0 L0,3.5" fill="none" stroke="#1E1A15" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />}
+          {mark === 'support' && <path d="M-4,-4.5 H4 V0 Q4,3.5 0,5 Q-4,3.5 -4,0 Z" fill="#1E1A15" />}
+          {mark === 'forage' && <path d="M0,5 V-4.5 M0,-1.5 L-3.5,-4.5 M0,-1.5 L3.5,-4.5 M0,1.5 L-3.5,-1.5 M0,1.5 L3.5,-1.5" fill="none" stroke="#1E1A15" strokeWidth={1.5} strokeLinecap="round" />}
+        </g>
+      )}
       {spec > 0 && <g transform="translate(20,-14)"><circle r={8} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
     </g>
   );

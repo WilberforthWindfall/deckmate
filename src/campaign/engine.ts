@@ -70,6 +70,8 @@ export interface Campaign {
   winner: House | null;
   winReason: string | null;
   nextId: number;
+  /** Snapshot taken when the orders were revealed, for the reveal animation. Cleared by the UI afterwards. */
+  reveal?: { round: number; armies: CArmy[]; owner: Record<string, House | null>; gold: Record<House, number>; orders: Record<House, Order[]> } | null;
 }
 
 export const OTHER: Record<House, House> = { R: 'K', K: 'R' };
@@ -144,6 +146,29 @@ export function orderProblem(c: Campaign, house: House, o: Order, others: Order[
   return 'Unbekannter Befehl.';
 }
 
+export type Tone = 'ok' | 'risk' | 'bad' | 'plain';
+/**
+ * What a move would probably lead to, from what the house can see: the visible defender and the house's own planned supports.
+ * Hidden enemy supports and moves are not known and not counted.
+ */
+export function movePreview(c: Campaign, house: House, armyId: string, to: string, draft: Order[]): { text: string; tone: Tone } {
+  const a = armyById(c, armyId);
+  if (!a) return { text: '', tone: 'plain' };
+  const holder = armyAt(c, to);
+  if (holder && holder.house === house) return { text: 'vereinen', tone: 'plain' };
+  if (!holder) {
+    if (c.owner[to] === house) return { text: 'verlegen', tone: 'plain' };
+    return { text: c.owner[to] ? 'einnehmen' : 'besetzen', tone: 'ok' };
+  }
+  const moving = new Set(draft.flatMap((o) => (o.kind === 'move' ? [o.army] : [])));
+  const sup = draft.flatMap((o) => (o.kind === 'support' && o.target === to && !moving.has(o.army) ? [armyById(c, o.army)!] : [])).filter(Boolean);
+  const sa = strength(c, a, to, sup, false), sd = strength(c, holder, to, [], true);
+  const fmt = (x: number) => String(x).replace('.', ',');
+  if (sa >= AUTO_WIN * sd) return { text: `${fmt(sa)} : ${fmt(sd)} · überrennt`, tone: 'ok' };
+  if (sd >= AUTO_WIN * sa) return { text: `${fmt(sa)} : ${fmt(sd)} · chancenlos`, tone: 'bad' };
+  return { text: `${fmt(sa)} : ${fmt(sd)} · Schlacht`, tone: 'risk' };
+}
+
 export const orderCost = (o: Order) => (o.kind === 'recruit' ? COST.recruit : o.kind === 'train' ? COST.train : o.kind === 'build' ? BUILDINGS[o.b].cost : 0);
 export const recruitSize = (c: Campaign, prov: string) => (hasBuilding(c, prov, 'kaserne') ? 4 : 3);
 
@@ -160,7 +185,7 @@ export function sealOrders(prev: Campaign, house: House, orders: Order[], rng: R
   return resolve(c, rng);
 }
 
-function strength(c: Campaign, a: CArmy, prov: string, supports: CArmy[], defending: boolean) {
+export function strength(c: Campaign, a: CArmy, prov: string, supports: CArmy[], defending: boolean) {
   const base = a.size + supports.reduce((s, x) => s + x.size / 2, 0);
   const wall = defending && hasBuilding(c, prov, 'mauer') ? 1.3 : 1;
   return Math.round(base * (defending ? LAND[PROV[prov].land].defense : 1) * wall * 10) / 10;
@@ -197,6 +222,7 @@ const lose = (a: CArmy, share: number) => {
 };
 
 function resolve(c: Campaign, _rng: Rng): Campaign {
+  c.reveal = { round: c.round, armies: clone(c.armies), owner: clone(c.owner), gold: { ...c.gold }, orders: clone(c.orders) };
   const log: string[] = [`Runde ${c.round}: Die Befehle werden aufgedeckt.`];
   const all = (['R', 'K'] as House[]).flatMap((h) => c.orders[h].map((o) => ({ h, o })));
 
