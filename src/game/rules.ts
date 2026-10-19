@@ -78,7 +78,8 @@ const RK = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const BS = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 const KN = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
 
-export const DEFAULT_OPTIONS: Options = { mPflicht: true, sideFirst: true };
+// mPflicht is kept only so older stored games still load; it no longer has any effect.
+export const DEFAULT_OPTIONS: Options = { mPflicht: false, sideFirst: true };
 
 export function startBoard(): Square[] {
   const b: Square[] = Array(64).fill(null);
@@ -153,8 +154,9 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
   return out;
 }
 
+/** Only the officers are obliged to capture. The crew may always choose a quiet move (fixed rule since 19.10.2026). */
 export function mustCapture(board: Square[], side: Side, options: Options): boolean {
-  if (side === 'M' && !options.mPflicht) return false;
+  if (side === 'M') return false;
   return board.some((p, i) => p && p.s === side && rawMoves(board, i, options).some((m) => m.cap.length));
 }
 

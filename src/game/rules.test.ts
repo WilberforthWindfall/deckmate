@@ -29,7 +29,7 @@ test('Vor dem Start sind keine Züge möglich, danach nur für die Seite am Zug'
 test('Mannschaft: Schlagserie mit Rückwärtsschlag wird bis zum Ende geschlagen', () => {
   const st = scene([['c3', 'stone'], ['d4', 'MAR'], ['d6', 'KAP'], ['b6', 'KAN'], ['e8', 'FL']]);
   st.turn = 'M';
-  const moves = legalMoves(st, f('c3'));
+  const moves = legalMoves(st, f('c3')).filter((m) => m.cap.length);
   assert.equal(moves.length, 1);
   assert.equal(sqName(moves[0].to), 'a5');
   assert.deepEqual(moves[0].cap.map(sqName), ['d4', 'd6', 'b6']);
@@ -46,10 +46,18 @@ test('Erster Schlag nicht rückwärts', () => {
 
 test('Seitlicher Erstschlag lässt sich abschalten', () => {
   const pieces: [string, 'stone' | 'KAN' | 'FL'][] = [['d4', 'stone'], ['e4', 'KAN'], ['e8', 'FL']];
+  const caps = (st: GameState) => legalMoves(st, f('d4')).filter((m) => m.cap.length).map((m) => sqName(m.to));
   const on = scene(pieces); on.turn = 'M';
-  assert.deepEqual(targets(on, 'd4'), ['f4']);
-  const off = scene(pieces, { mPflicht: true, sideFirst: false }); off.turn = 'M';
-  assert.deepEqual(targets(off, 'd4'), ['c5', 'e5']);
+  assert.deepEqual(caps(on), ['f4']);
+  const off = scene(pieces, { mPflicht: false, sideFirst: false }); off.turn = 'M';
+  assert.deepEqual(caps(off), []);
+});
+
+test('Mannschaft: keine Schlagpflicht, ruhige Züge bleiben erlaubt', () => {
+  const st = scene([['d4', 'stone'], ['e5', 'KAN'], ['a3', 'stone'], ['e8', 'FL']], { mPflicht: true, sideFirst: true });
+  st.turn = 'M';
+  assert.ok(targets(st, 'd4').includes('f6'));
+  assert.deepEqual(targets(st, 'a3'), ['b4']);
 });
 
 test('Offiziere: Schlagpflicht sperrt ruhige Züge anderer Figuren', () => {

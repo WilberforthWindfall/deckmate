@@ -217,9 +217,9 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
         <div className="stack" style={{ gap: 8 }}>
           <div className="lbl">Einstellungen</div>
           {onOptions ? <>
-            <label className="opt"><input type="checkbox" checked={st.options.mPflicht} onChange={(e) => onOptions({ ...st.options, mPflicht: e.target.checked })} /> Schlagpflicht auch für die Mannschaft (Dame-Regel)</label>
             <label className="opt"><input type="checkbox" checked={st.options.sideFirst} onChange={(e) => onOptions({ ...st.options, sideFirst: e.target.checked })} /> Seitlicher Schlag als erster Schlag erlaubt</label>
-          </> : <div className="rule">Schlagpflicht Mannschaft: {st.options.mPflicht ? 'ja' : 'nein'} · Seitlicher Erstschlag: {st.options.sideFirst ? 'ja' : 'nein'}</div>}
+          </> : <div className="rule">Seitlicher Erstschlag: {st.options.sideFirst ? 'ja' : 'nein'}</div>}
+          <div className="rule">Schlagpflicht gilt nur für die Offiziere. Die Mannschaft darf schlagen, muss aber nicht.</div>
           <label className="opt"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Kamera dreht zur Seite, die am Zug ist</label>
         </div>
         <div className="legend">
