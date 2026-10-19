@@ -82,7 +82,7 @@ const MARK = {
   hit: new THREE.MeshBasicMaterial({ color: 0xe5574d }),
   path: new THREE.MeshBasicMaterial({ color: 0xcda641, transparent: true, opacity: 0.45 }),
   cap: new THREE.MeshBasicMaterial({ color: 0xe5574d, transparent: true, opacity: 0.4 }),
-  pick: new THREE.MeshBasicMaterial({ color: 0xcda641, transparent: true, opacity: 0.35 }),
+  pick: new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true, opacity: 0.9 }),
   last: new THREE.MeshBasicMaterial({ color: 0x5daae4, transparent: true, opacity: 0.22 }),
 };
 
@@ -304,7 +304,7 @@ export class Table3D {
     if (!v) return;
     const lm = v.state.lastMove;
     if (lm && !v.selected) { this.flat(new THREE.PlaneGeometry(0.96, 0.96), MARK.last, lm.from, 0.053); this.flat(new THREE.PlaneGeometry(0.96, 0.96), MARK.last, lm.to, 0.053); }
-    if (v.shieldPick) v.state.board.forEach((p, i) => { if (p && p.s === v.state.turn) this.flat(new THREE.RingGeometry(0.4, 0.48, 48), MARK.pick, i); });
+    if (v.shieldPick) v.state.board.forEach((p, i) => { if (p && p.s === v.state.turn) this.flat(new THREE.RingGeometry(0.4, 0.5, 48), MARK.pick, i, 0.06); });
     if (v.selected !== null) this.flat(new THREE.RingGeometry(0.42, 0.5, 48), MARK.sel, v.selected);
     for (const m of v.moves) {
       if (m.cap.length) this.flat(new THREE.RingGeometry(0.36, 0.44, 48), MARK.hit, m.to, 0.058);
