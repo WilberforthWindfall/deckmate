@@ -122,6 +122,11 @@ export default function Lobby() {
               <p className="rule" style={{ margin: 0 }}>Prototyp: Zwei Heere aus dem Kampagnenmodus treffen sich auf dem Brett. Heere und Gelände wählen, aufstellen, kämpfen.</p>
               <Link to="/schlacht"><button type="button">Schlacht ausprobieren</button></Link>
             </div>
+            <div className="card stack">
+              <h2>Kampagne um Eridanos</h2>
+              <p className="rule" style={{ margin: 0 }}>Prototyp an einem Gerät: Ravensmoor gegen Kerrow auf der Hexkarte. Geheime Befehle reihum, knappe Kämpfe als Deckmate-Schlacht.</p>
+              <Link to="/kampagne"><button type="button" className="primary">Kampagne spielen</button></Link>
+            </div>
           </div>
         </div>
       </div>
