@@ -67,7 +67,7 @@ export default function Lobby() {
           <div><h1>Deckmate</h1><p>Willkommen an Bord, {user.displayName ?? 'Seefahrer'}.</p></div>
           <div className="row"><span className="rule stat">{record.wins} Siege · {record.losses} Niederlagen</span><button type="button" onClick={logout}>Abmelden</button></div>
         </div>
-        {error && <div className="card error">{error}</div>}
+        {error && <ErrorBox text={error} />}
         <div className="lobby">
           <div className="stack">
             <section className="card">
@@ -132,10 +132,29 @@ function statusText(g: GameDoc, me: string) {
   return turnUid === me ? 'du bist am Zug' : `${SIDE_NAME[g.state.turn]} am Zug`;
 }
 
+function ErrorBox({ text }: { text: string }) {
+  const m = text.match(/https:\/\/console\.firebase\.google\.com\S+/);
+  if (!m) return <div className="card error">{text}</div>;
+  const [before] = text.split(m[0]);
+  return (
+    <div className="card error">
+      {before.trim()} <a href={m[0]} target="_blank" rel="noreferrer">Index in Firebase anlegen</a>
+      <div style={{ fontSize: '0.85em', opacity: 0.8, marginTop: 4 }}>Danach 1–5 Minuten warten, bis der Index „Aktiviert“ ist, und die Seite neu laden.</div>
+    </div>
+  );
+}
+
 export function firestoreHint(err: unknown) {
   const code = (err as { code?: string })?.code ?? '';
+  const msg = (err as Error)?.message ?? '';
+  console.error('[Deckmate] Firestore-Fehler', code, msg);
   if (code === 'permission-denied') return 'Kein Zugriff auf die Datenbank. Die Firestore-Sicherheitsregeln müssen noch veröffentlicht werden.';
-  if (code === 'failed-precondition') return 'Firestore braucht noch einen Index. Den Link dazu findest du in der Browser-Konsole.';
+  if (code === 'failed-precondition') {
+    const link = msg.match(/https:\/\/console\.firebase\.google\.com\S+/)?.[0];
+    if (link?.includes('create_composite')) return `Firestore braucht noch einen Index. ${link}`;
+    if (/index/i.test(msg) && /build/i.test(msg)) return 'Der Firestore-Index wird gerade noch aufgebaut. Bitte in ein paar Minuten neu laden.';
+    return `Firestore braucht noch einen Index. ${link ?? ''}`.trim();
+  }
   if (code === 'unavailable') return 'Keine Verbindung zur Datenbank. Prüfe dein Internet.';
   return (err as Error)?.message || 'Das hat nicht geklappt.';
 }
