@@ -107,3 +107,36 @@ test('Rekruten sammeln sich nach dem Abmarsch: neues Heer in der Stadt', () => {
   assert.equal(armyAt(c, 'mittelland')?.size, 10);
   assert.equal(armyAt(c, 'aldfurt')?.size, 3);
 });
+
+test('Gebäude: Bauen kostet Gold und einen Befehl, schaltet Ausbildung frei', () => {
+  let c = newCampaign();
+  assert.match(orderProblem(c, 'R', { kind: 'train', prov: 'aldfurt', spec: 'KAN' }, []), /Gießerei/);
+  assert.equal(orderProblem(c, 'R', { kind: 'train', prov: 'aldfurt', spec: 'KAP' }, []), '', 'Hauptstadt startet mit Kapelle');
+  assert.match(orderProblem(c, 'R', { kind: 'build', prov: 'aldfurt', b: 'kapelle' }, []), /steht hier schon/);
+  assert.match(orderProblem(c, 'R', { kind: 'build', prov: 'aldfurt', b: 'giesserei' }, []), /Gold/);
+  c.gold.R = 10;
+  c = seal(c, [{ kind: 'build', prov: 'aldfurt', b: 'giesserei' }]);
+  assert.deepEqual(c.buildings.aldfurt, ['kapelle', 'giesserei']);
+  assert.equal(orderProblem(c, 'R', { kind: 'train', prov: 'aldfurt', spec: 'KAN' }, []), '');
+});
+
+test('Gebäude: Kaserne rekrutiert 4, Markt bringt Gold, Mauer stärkt Verteidiger', () => {
+  let c = newCampaign();
+  c.buildings.suedhafen = ['kaserne', 'markt'];
+  c = seal(c, [{ kind: 'recruit', prov: 'suedhafen' }]);
+  assert.equal(armyAt(c, 'suedhafen')?.size, 10);
+  assert.equal(c.gold.R, 4 - 3 + 3 + 4 + 2);
+
+  let d = newCampaign();
+  const k = d.armies.find((a) => a.id === 'a4')!; k.size = 8;
+  Object.assign(d.armies.find((a) => a.id === 'a1')!, { prov: 'weidenau', size: 6 });
+  d.owner.weidenau = 'R';
+  d = seal(d, [{ kind: 'move', army: 'a1', to: 'ostkueste' }]);
+  assert.equal(d.phase, 'battles', 'ohne Mauer knapp');
+  let e = newCampaign();
+  e.buildings.ostkueste = ['mauer'];
+  const k2 = e.armies.find((a) => a.id === 'a4')!; k2.size = 8;
+  Object.assign(e.armies.find((a) => a.id === 'a1')!, { prov: 'weidenau', size: 6 });
+  e = seal(e, [{ kind: 'move', army: 'a1', to: 'ostkueste' }]);
+  assert.match(e.report.join(' '), /klar ab/);
+});

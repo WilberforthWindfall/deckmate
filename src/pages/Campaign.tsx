@@ -6,7 +6,7 @@ import { battleResult } from '../game/battle.ts';
 import type { GameState } from '../game/rules.ts';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import {
-  COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, armyAt, armyById, autoBattle, battleGame, newCampaign, orderProblem, score, sealOrders,
+  BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, orderProblem, score, sealOrders,
   type CArmy, type Campaign as CampaignState, type Order, type SpecKey,
 } from '../campaign/engine.ts';
 import { ADJ, HOUSES, LAND, PROV, PROVINCES, type House } from '../campaign/map.ts';
@@ -14,14 +14,18 @@ import { ADJ, HOUSES, LAND, PROV, PROVINCES, type House } from '../campaign/map.
 // Campaign prototype on one device: houses give their orders in turn (the other player looks away), then all resolve at once.
 
 const KEY = 'deckmate.kampagne.v1';
-const load = (): CampaignState => { try { const s = localStorage.getItem(KEY); if (s) return JSON.parse(s); } catch { /* ignore */ } return newCampaign(); };
+const load = (): CampaignState => {
+  try { const s = localStorage.getItem(KEY); if (s) { const c = JSON.parse(s) as CampaignState; c.buildings ??= {}; return c; } } catch { /* ignore */ }
+  return newCampaign();
+};
 const save = (c: CampaignState) => { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* ignore */ } };
 
 function describe(c: CampaignState, o: Order): string {
   if (o.kind === 'move') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} (${a.size}) zieht nach ${PROV[o.to].n}`; }
   if (o.kind === 'support') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} unterstützt ${PROV[o.target].n}`; }
   if (o.kind === 'forage') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} fouragiert (+${LAND[PROV[a.prov].land].forage})`; }
-  if (o.kind === 'recruit') return `${PROV[o.prov].n}: 3 Figuren rekrutieren (${COST.recruit} Gold)`;
+  if (o.kind === 'recruit') return `${PROV[o.prov].n}: Figuren rekrutieren (${COST.recruit} Gold)`;
+  if (o.kind === 'build') return `${PROV[o.prov].n}: ${BUILDINGS[o.b].n} bauen (${BUILDINGS[o.b].cost} Gold)`;
   return `${PROV[o.prov].n}: ${SPEC_NAME[o.spec]} ausbilden (${COST.train} Gold)`;
 }
 
@@ -30,7 +34,7 @@ const specText = (a: CArmy) => {
   return parts.length ? parts.join(', ') : 'keine Spezialisten';
 };
 
-type Menu = { prov: string; x: number; y: number; kind: 'choose' | 'army' | 'city' };
+type Menu = { prov: string; x: number; y: number; kind: 'choose' | 'army' };
 
 export default function Campaign() {
   const [c, setC] = useState<CampaignState>(load);
@@ -39,14 +43,14 @@ export default function Campaign() {
   const [sel, setSel] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [mode, setMode] = useState<null | { kind: 'move' | 'support'; army: string }>(null);
-  const [spec, setSpec] = useState<SpecKey>('KAN');
+  const [city, setCity] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [battle, setBattle] = useState<{ id: string; st: GameState } | null>(null);
   const stage = useRef<HTMLDivElement>(null);
 
   useEffect(() => save(c), [c]);
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(null); setMode(null); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(null); setMode(null); setCity(null); } };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, []);
@@ -66,10 +70,11 @@ export default function Campaign() {
     if (w) { flash(w); return; }
     setDraft([...draft, o]); setMode(null); setMenu(null);
   }
+  function openCity(id: string) { setMenu(null); setCity(id); }
 
   function onProvince(id: string, at: { x: number; y: number }) {
     setSel(id);
-    if (!giving) { setMenu(null); return; }
+    if (!giving) { setMenu(null); setCity(PROV[id].city ? id : null); return; }
     if (mode) {
       if (!targets.includes(id)) { flash('Das ist keine Nachbarprovinz.'); return; }
       add(mode.kind === 'move' ? { kind: 'move', army: mode.army, to: id } : { kind: 'support', army: mode.army, target: id });
@@ -80,16 +85,16 @@ export default function Campaign() {
     const a = armyAt(c, id);
     const ownArmy = !!a && a.house === h;
     const ownCity = !!PROV[id].city && c.owner[id] === h;
-    if (ownArmy && ownCity) setMenu({ prov: id, ...pos, kind: 'choose' });
-    else if (ownArmy) setMenu({ prov: id, ...pos, kind: 'army' });
-    else if (ownCity) setMenu({ prov: id, ...pos, kind: 'city' });
-    else setMenu(null);
+    if (ownArmy && ownCity) { setCity(null); setMenu({ prov: id, ...pos, kind: 'choose' }); }
+    else if (ownArmy) { setCity(null); setMenu({ prov: id, ...pos, kind: 'army' }); }
+    else if (PROV[id].city) openCity(id);
+    else { setMenu(null); setCity(null); }
   }
 
   function seal() {
     try {
       const next = sealOrders(c, h, draft, Math.random);
-      setC(next); setDraft([]); setSel(null); setMode(null); setMenu(null); setReady(false);
+      setC(next); setDraft([]); setSel(null); setMode(null); setMenu(null); setCity(null); setReady(false);
     } catch (e) { flash((e as Error).message); }
   }
   function restart() {
@@ -125,8 +130,8 @@ export default function Campaign() {
   }
 
   const orderOf = (armyId: string) => draft.findIndex((o) => 'army' in o && o.army === armyId);
-  const cityOrder = (prov: string) => draft.findIndex((o) => (o.kind === 'recruit' || o.kind === 'train') && o.prov === prov);
-  const goldLeft = c.gold[h] - draft.reduce((g, o) => g + (o.kind === 'recruit' ? COST.recruit : o.kind === 'train' ? COST.train : 0), 0);
+  const cityOrder = (prov: string) => draft.findIndex((o) => (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') && o.prov === prov);
+  const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(o), 0);
   const phaseText = c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
 
   const menuArmy = menu ? armyAt(c, menu.prov) : null;
@@ -182,7 +187,7 @@ export default function Campaign() {
           </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <div style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
           <CampaignMap c={c} selected={sel} targets={targets} orders={giving ? draft : []} onProvince={onProvince} />
         </div>
 
@@ -196,7 +201,7 @@ export default function Campaign() {
             {menu.kind === 'choose' && menuArmy && <>
               <span className="rule">Hier stehen ein Heer und eine Stadt. Was möchtest du auswählen?</span>
               <button type="button" onClick={() => setMenu({ ...menu, kind: 'army' })}>Heer · {menuArmy.size} Figuren</button>
-              <button type="button" onClick={() => setMenu({ ...menu, kind: 'city' })}>Stadt {PROV[menu.prov].n}</button>
+              <button type="button" onClick={() => openCity(menu.prov)}>Stadt {PROV[menu.prov].n}</button>
             </>}
 
             {menu.kind === 'army' && menuArmy && <>
@@ -212,23 +217,11 @@ export default function Campaign() {
               </>}
             </>}
 
-            {menu.kind === 'city' && <>
-              <span className="rule">Stadt von {HOUSES[h].n} · {LAND[PROV[menu.prov].land].n}{PROV[menu.prov].capital ? ' · Hauptstadt' : ''}</span>
-              {cityOrder(menu.prov) >= 0 ? <>
-                <span>Befehl: {describe(c, draft[cityOrder(menu.prov)])}</span>
-                <button type="button" onClick={() => setDraft(draft.filter((_, j) => j !== cityOrder(menu.prov)))}>Befehl zurücknehmen</button>
-              </> : <>
-                <ActionBtn o={{ kind: 'recruit', prov: menu.prov }} label={`3 Figuren rekrutieren (${COST.recruit} Gold)`} />
-                <div className="row" style={{ gap: 6 }}>
-                  <select value={spec} onChange={(e) => setSpec(e.target.value as SpecKey)} style={{ width: 'auto', flex: 1 }} aria-label="Spezialist">
-                    {(Object.keys(SPEC_NAME) as SpecKey[]).map((k) => <option key={k} value={k}>{SPEC_NAME[k]}</option>)}
-                  </select>
-                </div>
-                <ActionBtn o={{ kind: 'train', prov: menu.prov, spec }} label={`${SPEC_NAME[spec]} ausbilden (${COST.train} Gold)`} />
-              </>}
-            </>}
           </div>
         )}
+
+        {city && <CityPanel c={c} prov={city} house={h} giving={giving} draft={draft} why={why} add={add}
+          orderIndex={cityOrder(city)} onRemove={(i) => setDraft(draft.filter((_, j) => j !== i))} onClose={() => setCity(null)} />}
 
         {msg && <div className="toast" role="alert" style={{ top: 76 }}>{msg}</div>}
         {mode && <div className="toast" role="status" style={{ top: 'auto', bottom: 24 }}>{mode.kind === 'move' ? 'Wohin soll das Heer ziehen?' : 'Welche Nachbarprovinz soll das Heer unterstützen?'} Tippe eine hellblaue Provinz an. <button type="button" className="ghost" onClick={() => setMode(null)}>Abbrechen</button></div>}
@@ -303,7 +296,7 @@ export default function Campaign() {
         <div className="card stack" style={{ gap: 4 }}>
           <div className="lbl">Regeln kurz</div>
           <span className="rule">Pro Runde {ORDERS_PER_ROUND} Befehle. Alle Befehle werden gleichzeitig ausgeführt. Stärke = Heer + halbe Größe unterstützender Heere, Verteidiger im Gebirge, auf Hügeln und im Wald stärker. Ab 1,5-facher Übermacht entscheidet sich ein Kampf von selbst, sonst kommt es zur Schlacht.</span>
-          <span className="rule">Einkommen: 1 Gold je Provinz, 2 je Stadt. Sieg: gegnerische Hauptstadt erobern oder nach {c.maxRounds} Runden die meisten Punkte (Provinz 1, Stadt 3).</span>
+          <span className="rule">Einkommen: 1 Gold je Provinz, 2 je Stadt, +2 je Markt. Städte bauen Gebäude (Stadt anklicken, Menü links): Kapelle, Gießerei, Kaserne und Offiziersmesse schalten Spezialisten frei, die Stadtmauer stärkt Verteidiger um 30 %. Sieg: gegnerische Hauptstadt erobern oder nach {c.maxRounds} Runden die meisten Punkte (Provinz 1, Stadt 3).</span>
         </div>
         <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>
       </aside>
@@ -316,6 +309,82 @@ function Stat({ label, value, title }: { label: string; value: string | number; 
     <div title={title} style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 34 }}>
       <span style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</span>
       <b style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</b>
+    </div>
+  );
+}
+
+function CityPanel({ c, prov, house, giving, draft, why, add, orderIndex, onRemove, onClose }: {
+  c: CampaignState; prov: string; house: House; giving: boolean; draft: Order[]; why: (o: Order) => string; add: (o: Order) => void;
+  orderIndex: number; onRemove: (i: number) => void; onClose: () => void;
+}) {
+  const p = PROV[prov];
+  const owner = c.owner[prov];
+  const mine = giving && owner === house;
+  const army = armyAt(c, prov);
+  const Act = ({ o, label, sub }: { o: Order; label: string; sub?: string }) => {
+    const w = why(o);
+    return (
+      <div className="stack" style={{ gap: 2 }}>
+        <button type="button" className={w ? 'muted' : ''} title={w || undefined} onClick={() => add(o)} style={{ textAlign: 'left' }}>{label}</button>
+        {(w || sub) && <span className="rule" style={{ fontSize: 12 }}>{w || sub}</span>}
+      </div>
+    );
+  };
+  return (
+    <div role="dialog" aria-label={`Stadt ${p.n}`} className="stack" style={{
+      position: 'absolute', left: 0, top: 58, bottom: 0, width: 330, zIndex: 6, overflowY: 'auto', gap: 12,
+      padding: 16, background: 'var(--hull)', borderRight: '1px solid var(--brass)', boxShadow: '8px 0 24px rgba(0,0,0,.35)',
+    }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="stack" style={{ gap: 0 }}>
+          <span className="lbl">Stadt</span>
+          <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontWeight: 600 }}>{p.n}</h2>
+        </div>
+        <button type="button" className="ghost" aria-label="Stadtmenü schließen" onClick={onClose}>×</button>
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <span className="chip"><i style={{ background: owner ? HOUSES[owner].color : '#6E6A60' }} />{owner ? HOUSES[owner].n : 'unbeansprucht'}</span>
+        <span className="rule">· {LAND[p.land].n}</span>
+        {p.capital && <span className="rule">· Hauptstadt</span>}
+      </div>
+      <span className="rule">{army ? `Heer von ${HOUSES[army.house].n}: ${army.size} Figuren` : 'Kein Heer in der Stadt.'}</span>
+
+      {mine && orderIndex >= 0 && (
+        <div className="card promo stack" style={{ gap: 6 }}>
+          <span className="lbl">Befehl dieser Runde</span>
+          <span>{describe(c, draft[orderIndex])}</span>
+          <button type="button" onClick={() => onRemove(orderIndex)}>Befehl zurücknehmen</button>
+        </div>
+      )}
+      {mine && orderIndex < 0 && <span className="rule">Pro Stadt und Runde ein Befehl: bauen, rekrutieren oder ausbilden. Jeder zählt zu deinen {ORDERS_PER_ROUND} Befehlen.</span>}
+
+      <div className="stack" style={{ gap: 8 }}>
+        <span className="lbl">Gebäude</span>
+        {BUILDING_KEYS.map((b) => {
+          const built = hasBuilding(c, prov, b);
+          return (
+            <div key={b} className="card stack" style={{ gap: 4, padding: 10, borderColor: built ? 'var(--ok)' : 'var(--rope)' }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <b>{BUILDINGS[b].n}</b>
+                <span className="rule">{built ? 'gebaut' : `${BUILDINGS[b].cost} Gold`}</span>
+              </div>
+              <span className="rule" style={{ fontSize: 12 }}>{BUILDINGS[b].effect}</span>
+              {mine && !built && orderIndex < 0 && <Act o={{ kind: 'build', prov, b }} label={`${BUILDINGS[b].n} bauen`} />}
+            </div>
+          );
+        })}
+      </div>
+
+      {mine && orderIndex < 0 && (
+        <div className="stack" style={{ gap: 8 }}>
+          <span className="lbl">Truppen</span>
+          <Act o={{ kind: 'recruit', prov }} label={`${recruitSize(c, prov)} Figuren rekrutieren (${COST.recruit} Gold)`} sub="Die Rekruten stoßen nach dem Abmarsch zum Heer in der Stadt oder bilden ein neues." />
+          {(Object.keys(SPEC_NAME) as SpecKey[]).map((k) => (
+            <Act key={k} o={{ kind: 'train', prov, spec: k }} label={`${SPEC_NAME[k]} ausbilden (${COST.train} Gold)`}
+              sub={hasBuilding(c, prov, buildingFor(k)) ? undefined : `braucht ${BUILDINGS[buildingFor(k)].n}`} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

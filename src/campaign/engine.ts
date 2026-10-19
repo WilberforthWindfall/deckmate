@@ -10,6 +10,19 @@ export type SpecKey = keyof Spec;
 export const SPEC_NAME: Record<SpecKey, string> = { CAP: 'Captain', KAP: 'Kaplan', KAN: 'Kanonade', MAR: 'Marine' };
 const SPEC_MAX: Spec = { CAP: 1, KAP: 2, KAN: 2, MAR: 2 };
 
+export type BuildingKey = 'kapelle' | 'giesserei' | 'kaserne' | 'messe' | 'markt' | 'mauer';
+export const BUILDINGS: Record<BuildingKey, { n: string; cost: number; effect: string; unlocks?: SpecKey }> = {
+  kapelle: { n: 'Kapelle', cost: 4, effect: 'Kapläne können ausgebildet werden.', unlocks: 'KAP' },
+  giesserei: { n: 'Gießerei', cost: 5, effect: 'Kanonaden können ausgebildet werden.', unlocks: 'KAN' },
+  kaserne: { n: 'Kaserne', cost: 4, effect: 'Marines können ausgebildet werden, Rekrutieren bringt 4 statt 3 Figuren.', unlocks: 'MAR' },
+  messe: { n: 'Offiziersmesse', cost: 6, effect: 'Ein Captain kann ausgebildet werden.', unlocks: 'CAP' },
+  markt: { n: 'Markt', cost: 5, effect: '+2 Gold pro Runde.' },
+  mauer: { n: 'Stadtmauer', cost: 5, effect: 'Verteidiger der Stadt sind 30 % stärker.' },
+};
+export const BUILDING_KEYS = Object.keys(BUILDINGS) as BuildingKey[];
+export const buildingFor = (spec: SpecKey) => BUILDING_KEYS.find((k) => BUILDINGS[k].unlocks === spec)!;
+export const hasBuilding = (c: Campaign, prov: string, b: BuildingKey) => (c.buildings?.[prov] ?? []).includes(b);
+
 export const MAX_ARMY = 16;
 export const ORDERS_PER_ROUND = 3;
 export const COST = { recruit: 3, train: 4 } as const;
@@ -22,7 +35,8 @@ export type Order =
   | { kind: 'support'; army: string; target: string }
   | { kind: 'forage'; army: string }
   | { kind: 'recruit'; prov: string }
-  | { kind: 'train'; prov: string; spec: SpecKey };
+  | { kind: 'train'; prov: string; spec: SpecKey }
+  | { kind: 'build'; prov: string; b: BuildingKey };
 
 export interface PendingBattle {
   id: string;
@@ -45,6 +59,8 @@ export interface Campaign {
   phase: 'orders' | 'battles' | 'over';
   current: House;
   owner: Record<string, House | null>;
+  /** Buildings per city; they stay when the city changes hands. */
+  buildings: Record<string, BuildingKey[]>;
   gold: Record<House, number>;
   armies: CArmy[];
   orders: Record<House, Order[]>;
@@ -71,7 +87,8 @@ export function newCampaign(): Campaign {
     { id: 'a4', house: 'K', prov: 'ostkueste', size: 6, spec: noSpec() },
   ];
   return {
-    v: 1, round: 1, maxRounds: 10, phase: 'orders', current: 'R', owner, gold: { R: 4, K: 4 }, armies,
+    v: 1, round: 1, maxRounds: 10, phase: 'orders', current: 'R', owner,
+    buildings: { aldfurt: ['kapelle'], kapostra: ['kapelle'] }, gold: { R: 4, K: 4 }, armies,
     orders: { R: [], K: [] }, sealed: { R: false, K: false }, battles: [],
     report: ['Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
   };
@@ -84,17 +101,23 @@ const specSum = (s: Spec) => s.CAP + s.KAP + s.KAN + s.MAR;
 /** Why an order is not allowed (empty string if it is), given the house's other orders this round. */
 export function orderProblem(c: Campaign, house: House, o: Order, others: Order[]): string {
   if (others.length >= ORDERS_PER_ROUND) return `Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`;
-  if (o.kind === 'recruit' || o.kind === 'train') {
+  if (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') {
     const p = PROV[o.prov];
     if (!p?.city) return 'Nur in Städten.';
     if (c.owner[o.prov] !== house) return 'Die Stadt gehört nicht deinem Haus.';
-    const spent = others.reduce((g, x) => g + (x.kind === 'recruit' ? COST.recruit : x.kind === 'train' ? COST.train : 0), 0);
-    const cost = o.kind === 'recruit' ? COST.recruit : COST.train;
+    const spent = others.reduce((g, x) => g + orderCost(x), 0);
+    const cost = orderCost(o);
+    if (others.some((x) => (x.kind === 'recruit' || x.kind === 'train' || x.kind === 'build') && x.prov === o.prov)) return 'Pro Stadt und Runde ein Befehl (Bauen, Rekrutieren oder Ausbilden).';
+    if (o.kind === 'build') {
+      if (hasBuilding(c, o.prov, o.b)) return `${BUILDINGS[o.b].n} steht hier schon.`;
+      if (c.gold[house] - spent < cost) return `Dafür fehlt Gold (${cost} nötig).`;
+      return '';
+    }
     if (c.gold[house] - spent < cost) return `Dafür fehlt Gold (${cost} nötig).`;
-    if (others.some((x) => (x.kind === 'recruit' || x.kind === 'train') && x.prov === o.prov)) return 'Pro Stadt ein Bau- oder Ausbildungsbefehl.';
     const here = armyAt(c, o.prov);
     if (here && here.house !== house) return 'In der Stadt steht ein fremdes Heer.';
     if (o.kind === 'train') {
+      if (!hasBuilding(c, o.prov, buildingFor(o.spec))) return `Dafür braucht die Stadt eine ${BUILDINGS[buildingFor(o.spec)].n}.`;
       if (!here) return 'Zum Ausbilden muss ein eigenes Heer in der Stadt stehen.';
       if (here.spec[o.spec] >= SPEC_MAX[o.spec]) return `Das Heer hat schon die Höchstzahl an ${SPEC_NAME[o.spec]}.`;
       if (1 + specSum(here.spec) >= here.size) return 'Das Heer ist zu klein für weitere Spezialisten.';
@@ -121,6 +144,9 @@ export function orderProblem(c: Campaign, house: House, o: Order, others: Order[
   return 'Unbekannter Befehl.';
 }
 
+export const orderCost = (o: Order) => (o.kind === 'recruit' ? COST.recruit : o.kind === 'train' ? COST.train : o.kind === 'build' ? BUILDINGS[o.b].cost : 0);
+export const recruitSize = (c: Campaign, prov: string) => (hasBuilding(c, prov, 'kaserne') ? 4 : 3);
+
 /** Seal one house's orders. When both are sealed, everything resolves. */
 export function sealOrders(prev: Campaign, house: House, orders: Order[], rng: Rng): Campaign {
   if (prev.phase !== 'orders') throw new Error('Gerade werden keine Befehle gegeben.');
@@ -134,9 +160,10 @@ export function sealOrders(prev: Campaign, house: House, orders: Order[], rng: R
   return resolve(c, rng);
 }
 
-function strength(_c: Campaign, a: CArmy, prov: string, supports: CArmy[], defending: boolean) {
+function strength(c: Campaign, a: CArmy, prov: string, supports: CArmy[], defending: boolean) {
   const base = a.size + supports.reduce((s, x) => s + x.size / 2, 0);
-  return Math.round(base * (defending ? LAND[PROV[prov].land].defense : 1) * 10) / 10;
+  const wall = defending && hasBuilding(c, prov, 'mauer') ? 1.3 : 1;
+  return Math.round(base * (defending ? LAND[PROV[prov].land].defense : 1) * wall * 10) / 10;
 }
 
 function retreatTarget(c: Campaign, a: CArmy, from: string, avoid: string[]): string | null {
@@ -175,6 +202,11 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
 
   // 1. Training and supplies
   for (const { h, o } of all) {
+    if (o.kind === 'build') {
+      c.gold[h] -= BUILDINGS[o.b].cost;
+      (c.buildings[o.prov] ??= []).push(o.b);
+      log.push(`${hn(h)} baut in ${pn(o.prov)}: ${BUILDINGS[o.b].n}.`);
+    }
     if (o.kind === 'train') {
       c.gold[h] -= COST.train;
       const here = armyAt(c, o.prov)!;
@@ -249,8 +281,9 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
     c.gold[h] -= COST.recruit;
     const here = armyAt(c, o.prov);
     if (here && here.house !== h) { log.push(`${hn(h)} kann in ${pn(o.prov)} nicht rekrutieren, dort steht ein fremdes Heer.`); c.gold[h] += COST.recruit; continue; }
-    if (here) { here.size = Math.min(MAX_ARMY, here.size + 3); log.push(`${hn(h)} rekrutiert 3 Figuren in ${pn(o.prov)}.`); }
-    else { c.armies.push({ id: `a${c.nextId++}`, house: h, prov: o.prov, size: 3, spec: noSpec() }); log.push(`${hn(h)} stellt in ${pn(o.prov)} ein neues Heer auf.`); }
+    const n = recruitSize(c, o.prov);
+    if (here) { here.size = Math.min(MAX_ARMY, here.size + n); log.push(`${hn(h)} rekrutiert ${n} Figuren in ${pn(o.prov)}.`); }
+    else { c.armies.push({ id: `a${c.nextId++}`, house: h, prov: o.prov, size: n, spec: noSpec() }); log.push(`${hn(h)} stellt in ${pn(o.prov)} ein neues Heer mit ${n} Figuren auf.`); }
   }
   // Armies waiting for their battle stand "between" provinces: they have left their origin.
   for (const b of battles) {
@@ -337,9 +370,10 @@ function endRound(c: Campaign): Campaign {
   for (const a of c.armies) c.owner[a.prov] = a.house;
   for (const h of ['R', 'K'] as House[]) {
     const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
-    const income = provs.length + provs.filter((p) => p.city).length * 2;
+    const markets = provs.filter((p) => hasBuilding(c, p.id, 'markt')).length;
+    const income = provs.length + provs.filter((p) => p.city).length * 2 + markets * 2;
     c.gold[h] += income;
-    log.push(`${hn(h)} erhält ${income} Gold (${provs.length} Provinzen, ${provs.filter((p) => p.city).length} Städte).`);
+    log.push(`${hn(h)} erhält ${income} Gold (${provs.length} Provinzen, ${provs.filter((p) => p.city).length} Städte${markets ? `, ${markets} Märkte` : ''}).`);
   }
   for (const h of ['R', 'K'] as House[]) {
     const cap = PROVINCES.find((p) => p.capital === OTHER[h])!;
