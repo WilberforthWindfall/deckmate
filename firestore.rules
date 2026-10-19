@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+
+    // Player profiles: readable by every signed-in player, written by the owner.
+    // Other players may only change the win/loss counters (written when a game ends).
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && me() == uid;
+      allow update: if signedIn() && (
+        me() == uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['wins', 'losses'])
+      );
+    }
+
+    match /games/{gameId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.createdBy == me()
+        && me() in request.resource.data.members;
+      allow delete: if signedIn() && resource.data.createdBy == me();
+      allow update: if signedIn() && (
+        // players of this game
+        me() in resource.data.members ||
+        // joining a free seat of an open game
+        (resource.data.status == 'open'
+          && request.resource.data.members.hasAll(resource.data.members)
+          && request.resource.data.members.size() == resource.data.members.size() + 1
+          && me() in request.resource.data.members)
+      );
+    }
+
+    // Old login data from version 1 (plaintext passwords): locked completely.
+    match /players/{doc=**} {
+      allow read, write: if false;
+    }
+  }
+}
