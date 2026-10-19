@@ -77,6 +77,9 @@ export default function Campaign() {
     setSel(id);
     if (!giving) { setMenu(null); setCity(PROV[id].city ? id : null); return; }
     if (mode) {
+      const own = armyAt(c, id);
+      if (own && own.id === mode.army) { setMode(null); return; }
+      if (!targets.includes(id) && own && own.house === h) { setMode(null); return onProvince(id, at); }
       if (!targets.includes(id)) { flash('Das ist keine Nachbarprovinz.'); return; }
       add(mode.kind === 'move' ? { kind: 'move', army: mode.army, to: id } : { kind: 'support', army: mode.army, target: id });
       return;

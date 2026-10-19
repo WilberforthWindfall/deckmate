@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type MouseEvent as RMouseEvent } from 'react';
 import {
   HEXES, HEX_R, HOUSES, LAND, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexPoints, hexSides, inGrid, provCenter, type House,
 } from './map.ts';
@@ -121,7 +121,8 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
 
       {c.armies.filter((a) => !a.prov.startsWith('@')).map((a) => {
         const [x, y] = provCenter(a.prov);
-        return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR} />;
+        return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR}
+          selected={selected === a.prov} onClick={(e) => onProvince(a.prov, { x: e.clientX, y: e.clientY })} />;
       })}
       {c.battles.map((b) => {
         const att = c.armies.find((x) => x.id === b.attacker)!;
@@ -138,9 +139,12 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
   );
 }
 
-function Token({ x, y, house, size, spec }: { x: number; y: number; house: House; size: number; spec: number }) {
+function Token({ x, y, house, size, spec, selected, onClick }: {
+  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; onClick?: (e: RMouseEvent) => void;
+}) {
   return (
-    <g transform={`translate(${x},${y})`}>
+    <g transform={`translate(${x},${y})`} data-army={house} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
+      {selected && <rect x={-29} y={-20} width={58} height={40} rx={10} fill="none" stroke="#E2C27F" strokeWidth={3} />}
       <rect x={-24} y={-15} width={48} height={30} rx={7} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={2} />
       <path d="M-15,-8 v16 M-15,-8 l9,4 l-9,4" fill="none" stroke="#FFF6F2" strokeWidth={1.5} strokeLinejoin="round" />
       <text x={6} y={5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={15} fill="#FFF8F2">{size}</text>
