@@ -1,7 +1,7 @@
 // One entry point for every player action, shared by the local and the online game
 // (and later by a Cloud Function that validates moves on the server).
 import {
-  applyMove, chooseShield, playCard, resign, resolveConversion, resolvePromotionRoll, rollDie, startGame,
+  applyMove, chooseShield, endTurn, playCard, resign, resolveConversion, resolvePromotionRoll, rollDie, startGame,
   SIDE_NAME, type GameState, type PieceType, type Rng, type Side,
 } from './rules.ts';
 
@@ -12,6 +12,7 @@ export type Action =
   | { type: 'convert'; t: PieceType }
   | { type: 'card'; side: Side; index: number }
   | { type: 'shield'; at: number }
+  | { type: 'endTurn' }
   | { type: 'resign'; side: Side };
 
 /** Which side is allowed to send this action, or null if either may (start). */
@@ -40,6 +41,7 @@ export function act(st: GameState, a: Action, rng: Rng): GameState {
     case 'convert': return resolveConversion(st, a.t);
     case 'card': return playCard(st, a.side, a.index, rng);
     case 'shield': return chooseShield(st, a.at);
+    case 'endTurn': return endTurn(st, st.turn);
     case 'resign': return resign(st, a.side);
   }
 }

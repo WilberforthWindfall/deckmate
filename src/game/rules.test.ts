@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyMove, chooseShield, fromName as f, legalMoves, newGame, playCard, resign, resolveConversion,
+  applyMove, chooseShield, endTurn, fromName as f, legalMoves, newGame, playCard, resign, resolveConversion,
   resolvePromotionRoll, scene, startGame, sqName, type GameState,
 } from './rules.ts';
 
@@ -156,4 +156,47 @@ test('Aufgeben beendet die Partie zugunsten der Gegenseite', () => {
 test('Zustand ist als JSON speicherbar und bleibt identisch', () => {
   const st = startGame(newGame(Math.random), 'M');
   assert.deepEqual(JSON.parse(JSON.stringify(st)), st);
+});
+
+test('Karte nach dem Ziehen: Zug wartet, bis Karte gespielt oder Zug beendet', () => {
+  let st = startGame(newGame(Math.random), 'M');
+  st.hands.M = ['grog', 'kopf'];
+  st = applyMove(st, f('c3'), f('d4'));
+  assert.equal(st.turn, 'M');
+  assert.equal(st.fx.moved, true);
+  assert.deepEqual(targets(st, 'e3'), [], 'nach dem Zug keine weiteren Züge');
+  assert.throws(() => playCard(st, 'M', 1, Math.random), /nur vor dem Ziehen/);
+  const after = playCard(st, 'M', 0, Math.random);
+  assert.equal(after.turn, 'M', 'Grog nach dem Zug: Offiziere setzen aus, Mannschaft zieht erneut');
+  assert.equal(after.fx.moved, false);
+  const ended = endTurn(st, 'M');
+  assert.equal(ended.turn, 'O');
+});
+
+test('Ohne spielbare Karte geht der Zug nach dem Ziehen sofort weiter', () => {
+  let st = startGame(newGame(Math.random), 'M');
+  st.hands.M = ['kopf'];
+  st = applyMove(st, f('c3'), f('d4'));
+  assert.equal(st.turn, 'O');
+});
+
+test('Ehrenwache nach dem Ziehen: Figur wählen beendet den Zug, Schutz hält über den Gegnerzug', () => {
+  let st = startGame(newGame(Math.random), 'O');
+  st.hands.O = ['wache'];
+  st = applyMove(st, f('d7'), f('d6'));
+  st = playCard(st, 'O', 0, Math.random);
+  assert.equal(st.fx.shieldPick, true);
+  st = chooseShield(st, f('d6'));
+  assert.equal(st.turn, 'M');
+  assert.equal(st.board[f('d6')]?.shielded, true);
+  const any = st.board.some((p, i) => p?.s === 'M' && legalMoves(st, i).length);
+  assert.ok(any, 'Mannschaft kann ziehen');
+});
+
+test('Ehrenwache vor dem Ziehen: danach sind eigene Züge möglich', () => {
+  let st = startGame(newGame(Math.random), 'O');
+  st.hands.O = ['wache'];
+  st = chooseShield(playCard(st, 'O', 0, Math.random), f('e8'));
+  assert.equal(st.turn, 'O');
+  assert.ok(st.board.some((p, i) => p?.s === 'O' && legalMoves(st, i).length));
 });

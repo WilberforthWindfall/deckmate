@@ -55,6 +55,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     if (st.fx.shieldPick && controls(st.turn)) {
       const p = st.board[i];
       if (p && p.s === st.turn) send({ type: 'shield', at: i });
+      else { setToast(`Wähle eine Figur der ${SIDE_NAME[st.turn]} für die Ehrenwache.`); setTimeout(() => setToast(''), 2600); }
       return;
     }
     const m = sel !== null ? moves.find((x) => x.to === i) : undefined;
@@ -92,6 +93,8 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   if (st.fx.noPflicht) chips.push('Keine Schlagpflicht');
   if (st.fx.retreat) chips.push('Böe: 1 Feld in jede Richtung');
   if (st.fx.shieldPick) chips.push('Figur für Ehrenwache wählen');
+  if (st.fx.played && !st.fx.moved && !st.fx.shieldPick && st.phase === 'play') chips.push('Karte gespielt – jetzt ziehen');
+  if (st.fx.moved && !st.fx.shieldPick) chips.push('Gezogen – Karte noch möglich');
   (['M', 'O'] as Side[]).forEach((s) => { if (st.fx.skip[s]) chips.push(`${SIDE_NAME[s]} setzen nächsten Zug aus`); });
   st.board.forEach((q) => { if (q?.shielded) chips.push(`${PIECES[q.t].n} unter Ehrenwache`); });
 
@@ -107,6 +110,9 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   const turnDot = st.phase === 'over' ? st.winner : st.phase === 'play' && !freeMode ? st.turn : null;
 
   const card = selCard ? st.hands[selCard.side][selCard.index] : undefined;
+  const afterMoveWait = !freeMode && st.phase === 'play' && !!st.fx.moved && !st.fx.shieldPick && controls(st.turn);
+  const stuck = !freeMode && st.phase === 'play' && controls(st.turn) && !st.pending && !st.fx.shieldPick && !st.fx.moved
+    && !st.board.some((q, i) => q && q.s === st.turn && legalMoves(st, i).length);
   const cardWhy = card && selCard ? (freeMode ? 'In Testszenen gibt es keine Karten.' : !controls(selCard.side) ? 'Das ist eine Karte der Gegenseite.' : cardBlocker(st, selCard.side, card)) : '';
 
   return (
@@ -121,11 +127,14 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <button type="button" aria-label="Näher heran" onClick={() => table.current?.zoom(-1.5)}>+</button>
           <button type="button" aria-label="Weiter weg" onClick={() => table.current?.zoom(1.5)}>−</button>
         </div>
+        {!freeMode && st.phase === 'play' && st.fx.shieldPick && controls(st.turn) && (
+          <div className="toast" role="status" style={{ top: 70 }}>Ehrenwache: Tippe jetzt eine eigene Figur an. Sie wird geschützt, danach ziehst du wie gewohnt.</div>
+        )}
         {waiting && <div className="overlay"><div className="dialog">{waiting}</div></div>}
         {!waiting && !freeMode && st.phase === 'setup' && (
           <div className="overlay"><div className="dialog">
             <h2>Wer sticht zuerst in See?</h2>
-            <p>Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch. Pro Zug darf vor dem Ziehen eine Karte gespielt werden.</p>
+            <p>Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch. Pro Zug darf eine Karte gespielt werden, vor oder nach dem Ziehen.</p>
             <div className="row" style={{ justifyContent: 'center' }}>
               <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'M' })}>Mannschaft beginnt</button>
               <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'O' })}>Offiziere beginnen</button>
@@ -168,6 +177,14 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             </>}
           </div>
         )}
+        {afterMoveWait && (
+          <div className="card promo">
+            <h2>Zug ausgeführt</h2>
+            <div className="rule">Du kannst jetzt noch eine Karte ausspielen oder den Zug beenden.</div>
+            <div className="row" style={{ marginTop: 10 }}><button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'endTurn' })}>Zug beenden</button></div>
+          </div>
+        )}
+        {stuck && <div className="card"><div className="warn">Die {SIDE_NAME[st.turn]} haben gerade keinen erlaubten Zug. Das sollte nicht passieren: Bitte mach einen Screenshot, damit der Fehler behoben werden kann.</div></div>}
         {st.lastDice && <div className="card"><div className="lbl">Letzter Wurf</div><div className="dice">{DICE[st.lastDice[0] - 1]} {DICE[st.lastDice[1] - 1]}</div></div>}
 
         {!freeMode && (

@@ -23,7 +23,7 @@ export interface GameState {
   moveNo: number;
   hands: Record<Side, CardKey[]>;
   captured: Record<Side, PieceType[]>;
-  fx: { skip: Record<Side, number>; noPflicht: boolean; retreat: boolean; played: boolean; shieldPick: boolean };
+  fx: { skip: Record<Side, number>; noPflicht: boolean; retreat: boolean; played: boolean; shieldPick: boolean; moved?: boolean };
   pending: null | { kind: 'promoM' | 'promoO'; at: number };
   options: Options;
   lastMove: LastMove | null;
@@ -164,7 +164,7 @@ export function mustCapture(board: Square[], side: Side, options: Options): bool
 export function legalMoves(st: GameState, from: number, free = false): Move[] {
   const p = st.board[from];
   if (!p) return [];
-  if (!free && (st.phase !== 'play' || p.s !== st.turn || st.pending || st.fx.shieldPick)) return [];
+  if (!free && (st.phase !== 'play' || p.s !== st.turn || st.pending || st.fx.shieldPick || st.fx.moved)) return [];
   let mv = rawMoves(st.board, from, st.options);
   const own = p.s === st.turn;
   const retreat = own && st.fx.retreat;
@@ -203,7 +203,7 @@ export function newGame(rng: Rng, options: Options = DEFAULT_OPTIONS): GameState
   return {
     v: 0, board: startBoard(), phase: 'setup', turn: 'M', winner: null, winReason: null, moveNo: 1,
     hands: { M: deck.slice(0, 2), O: deck.slice(2, 4) }, captured: { M: [], O: [] },
-    fx: { skip: { M: 0, O: 0 }, noPflicht: false, retreat: false, played: false, shieldPick: false },
+    fx: { skip: { M: 0, O: 0 }, noPflicht: false, retreat: false, played: false, shieldPick: false, moved: false },
     pending: null, options: { ...options }, lastMove: null, lastDice: null, log: ['Neue Partie. Karten verteilt.'],
   };
 }
@@ -227,11 +227,38 @@ function finishTurn(st: GameState) {
   }
   const ending = st.turn;
   for (const p of st.board) if (p && p.s !== ending) delete p.shielded;
-  st.fx.noPflicht = false; st.fx.retreat = false; st.fx.played = false;
+  st.fx.noPflicht = false; st.fx.retreat = false; st.fx.played = false; st.fx.moved = false;
   st.moveNo++;
   const other = opp(ending);
   if (st.fx.skip[other] > 0) { st.fx.skip[other]--; pushLog(st, `${SIDE_NAME[other]} setzen aus – ${SIDE_NAME[ending]} ziehen erneut`); }
   else st.turn = other;
+}
+
+/** Cards that change how a piece moves only make sense before the move. */
+export const BEFORE_MOVE_ONLY: CardKey[] = ['kopf', 'boee'];
+
+/** True if `side` still holds a card it could play right now. */
+export function hasPlayableCard(st: GameState, side: Side): boolean {
+  return st.hands[side].some((k) => !cardBlocker(st, side, k));
+}
+
+/**
+ * After a move the mover may still play one card (if none was played this turn).
+ * The turn then waits for a card or an explicit "end turn"; otherwise it passes at once.
+ */
+function afterMove(st: GameState) {
+  if (winnerOf(st.board)) { finishTurn(st); return; }
+  st.fx.moved = true;
+  if (!hasPlayableCard(st, st.turn)) finishTurn(st);
+}
+
+export function endTurn(prev: GameState, side: Side): GameState {
+  if (prev.phase !== 'play' || prev.turn !== side) throw new Error('Du bist gerade nicht am Zug.');
+  if (!prev.fx.moved) throw new Error('Erst ziehen, dann den Zug beenden.');
+  if (prev.fx.shieldPick) throw new Error('Erst eine Figur für die Ehrenwache wählen.');
+  const st = clone(prev);
+  finishTurn(st); st.v++;
+  return st;
 }
 
 export function applyMove(prev: GameState, from: number, to: number, path?: number[]): GameState {
@@ -249,7 +276,7 @@ export function applyMove(prev: GameState, from: number, to: number, path?: numb
   const [tr] = rc(to);
   if (p.t === 'stone' && tr === 0 && !winnerOf(st.board)) st.pending = { kind: 'promoM', at: to };
   else if (p.t === 'INF' && tr === 7 && !winnerOf(st.board)) st.pending = { kind: 'promoO', at: to };
-  else finishTurn(st);
+  else afterMove(st);
   st.v++;
   return st;
 }
@@ -262,7 +289,7 @@ export function resolvePromotionRoll(prev: GameState, dice: [number, number]): G
   st.lastDice = dice;
   pushLog(st, `Würfel ${dice[0]} + ${dice[1]}: ${pasch ? 'Pasch → Turm' : 'kein Pasch → Läufer'}`);
   st.pending = null; st.lastMove = null;
-  finishTurn(st); st.v++;
+  afterMove(st); st.v++;
   return st;
 }
 
@@ -273,7 +300,7 @@ export function resolveConversion(prev: GameState, t: PieceType): GameState {
   st.board[st.pending!.at] = { t, s: 'O' };
   pushLog(st, `Infanterist wird ${PIECES[t].n}`);
   st.pending = null; st.lastMove = null;
-  finishTurn(st); st.v++;
+  afterMove(st); st.v++;
   return st;
 }
 
@@ -296,6 +323,7 @@ export function cardBlocker(st: GameState, side: Side, key: CardKey): string {
   if (st.turn !== side) return `Spielbar, wenn die ${SIDE_NAME[side]} am Zug sind.`;
   if (st.fx.played) return 'Pro Zug ist nur eine Karte erlaubt.';
   if (st.pending || st.fx.shieldPick) return 'Erst die laufende Aktion abschließen.';
+  if (st.fx.moved && BEFORE_MOVE_ONLY.includes(key)) return 'Diese Karte wirkt nur vor dem Ziehen.';
   if (key === 'arzt') {
     const t = st.captured[side][st.captured[side].length - 1];
     if (!t) return 'Bisher wurde keine eigene Figur geschlagen.';
@@ -331,6 +359,7 @@ export function playCard(prev: GameState, side: Side, handIndex: number, rng: Rn
     const lost = st.hands[o].splice(i, 1)[0];
     pushLog(st, `${SIDE_NAME[o]} verlieren „${CARDS[lost].t}“`);
   }
+  if (st.fx.moved && !st.fx.shieldPick) finishTurn(st);
   st.v++;
   return st;
 }
@@ -343,6 +372,7 @@ export function chooseShield(prev: GameState, at: number): GameState {
   st.board[at] = { ...p, shielded: true };
   st.fx.shieldPick = false;
   pushLog(st, `Ehrenwache schützt ${PIECES[p.t].n} auf ${sqName(at)}`);
+  if (st.fx.moved) finishTurn(st);
   st.v++;
   return st;
 }
