@@ -6,7 +6,7 @@ export type Land = 'A' | 'W' | 'S' | 'G' | 'F' | 'K' | 'H';
 
 export const HOUSES: Record<House, { n: string; color: string; light: string }> = {
   R: { n: 'Ravensmoor', color: '#A8322D', light: '#F2C9C2' },
-  K: { n: 'Kerrow', color: '#B07A26', light: '#F1DDB0' },
+  K: { n: 'Kerrow', color: '#2C5DB8', light: '#C9D8F2' },
 };
 
 export const LAND: Record<Land, { n: string; tile: string; forage: number; defense: number; battle: 'ebene' | 'fluss' | 'gebirge' | 'huegel'; note: string }> = {

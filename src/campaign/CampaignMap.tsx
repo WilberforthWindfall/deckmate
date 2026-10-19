@@ -21,7 +21,7 @@ const TILE: Record<string, string> = { A: 'acker', W: 'wald', S: 'sumpf', G: 'ge
 export default function CampaignMap({ c, selected, targets, orders, onProvince }: Props) {
   const geo = useMemo(() => {
     const coast: string[] = [], prov: string[] = [];
-    const house: Record<string, string[]> = {};
+    const house: { prov: string; other: string | null; d: string }[] = [];
     for (const h of HEXES) {
       if (!h.prov) continue;
       for (const s of hexSides(h.c, h.r)) {
@@ -30,9 +30,9 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
         if (!n || !n.prov) coast.push(seg);
         else if (n.prov !== h.prov && (h.c < n.c || (h.c === n.c && h.r < n.r))) prov.push(seg);
         if (n?.prov !== h.prov) {
-          const [x, y] = center(h.c, h.r), k = (HEX_R - 4) / HEX_R;
+          const [x, y] = center(h.c, h.r), k = (HEX_R - 5) / HEX_R;
           const a = [x + (s.a[0] - x) * k, y + (s.a[1] - y) * k], b = [x + (s.b[0] - x) * k, y + (s.b[1] - y) * k];
-          (house[h.prov] ??= []).push(`M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`);
+          house.push({ prov: h.prov, other: n?.prov ?? null, d: `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}` });
         }
       }
     }
@@ -65,6 +65,9 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
         );
       })}
 
+      {HEXES.filter((h) => h.prov && c.owner[h.prov]).map((h) => (
+        <polygon key={`o${h.c},${h.r}`} points={pts(hexPoints(h.c, h.r))} fill={HOUSES[c.owner[h.prov!]!].color} fillOpacity={0.2} stroke="none" pointerEvents="none" />
+      ))}
       {targets.length > 0 && HEXES.filter((h) => h.prov && targets.includes(h.prov)).map((h) => (
         <polygon key={`t${h.c},${h.r}`} points={pts(hexPoints(h.c, h.r))} fill="#7FE3FF" fillOpacity={0.22} stroke="none" pointerEvents="none" />
       ))}
@@ -73,9 +76,16 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
       ))}
 
       <path d={geo.prov} fill="none" stroke="#3B2F22" strokeWidth={1.6} strokeDasharray="4 3" strokeOpacity={0.8} pointerEvents="none" />
-      {PROVINCES.map((p) => {
-        const o = c.owner[p.id];
-        return o ? <path key={p.id} d={geo.house[p.id].join('')} fill="none" stroke={HOUSES[o].color} strokeWidth={4} strokeLinecap="round" pointerEvents="none" /> : null;
+      {(['R', 'K'] as House[]).map((hs) => {
+        const d = geo.house.filter((e) => c.owner[e.prov] === hs && (!e.other || c.owner[e.other] !== hs)).map((e) => e.d).join('');
+        if (!d) return null;
+        return (
+          <g key={hs} pointerEvents="none">
+            <path d={d} fill="none" stroke="#120E0A" strokeOpacity={0.7} strokeWidth={8} strokeLinecap="round" />
+            <path d={d} fill="none" stroke={HOUSES[hs].color} strokeWidth={5} strokeLinecap="round" />
+            <path d={d} fill="none" stroke="#FFF6E8" strokeOpacity={0.55} strokeWidth={1.2} strokeLinecap="round" />
+          </g>
+        );
       })}
       <path d={geo.coast} fill="none" stroke="#3B2F22" strokeWidth={2.8} strokeLinecap="round" pointerEvents="none" />
 
