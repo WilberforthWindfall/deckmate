@@ -4,6 +4,7 @@ import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
 import { battleResult } from '../game/battle.ts';
 import type { GameState } from '../game/rules.ts';
+import { HelpButton } from '../campaign/Help.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import {
   BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, orderProblem, score, sealOrders,
@@ -244,7 +245,7 @@ export default function Campaign() {
       </div>
 
       <aside className="panel">
-        <div className="row" style={{ justifyContent: 'space-between' }}><Link to="/">← Zur Lobby</Link><span className="rule">Kampagne · Prototyp</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><Link to="/">← Zur Lobby</Link><div className="row" style={{ gap: 10 }}><span className="rule">Kampagne · Prototyp</span><HelpButton /></div></div>
 
         {c.phase === 'battles' && (
           <div className="card promo stack" style={{ gap: 8 }}>
