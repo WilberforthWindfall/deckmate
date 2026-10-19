@@ -117,6 +117,11 @@ export default function Lobby() {
               <p className="rule" style={{ margin: 0 }}>Beide Seiten spielen abwechselnd am selben Bildschirm. Mit Testszenen zum Prüfen der Regeln.</p>
               <Link to="/lokal"><button type="button">Lokale Partie öffnen</button></Link>
             </div>
+            <div className="card stack">
+              <h2>Kampagnen-Schlacht</h2>
+              <p className="rule" style={{ margin: 0 }}>Prototyp: Zwei Heere aus dem Kampagnenmodus treffen sich auf dem Brett. Heere und Gelände wählen, aufstellen, kämpfen.</p>
+              <Link to="/schlacht"><button type="button">Schlacht ausprobieren</button></Link>
+            </div>
           </div>
         </div>
       </div>

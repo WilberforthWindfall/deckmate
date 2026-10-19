@@ -10,6 +10,8 @@ export interface TableView {
   selected: number | null;
   moves: Move[];
   shieldPick: boolean;
+  /** Extra squares to highlight as clickable (e.g. pieces to take off during deployment). */
+  pickable?: number[];
   selectedCard: { side: Side; index: number } | null;
 }
 
@@ -305,6 +307,7 @@ export class Table3D {
     const lm = v.state.lastMove;
     if (lm && !v.selected) { this.flat(new THREE.PlaneGeometry(0.96, 0.96), MARK.last, lm.from, 0.053); this.flat(new THREE.PlaneGeometry(0.96, 0.96), MARK.last, lm.to, 0.053); }
     if (v.shieldPick) v.state.board.forEach((p, i) => { if (p && p.s === v.state.turn) this.flat(new THREE.RingGeometry(0.4, 0.5, 48), MARK.pick, i, 0.06); });
+    v.pickable?.forEach((i) => this.flat(new THREE.RingGeometry(0.4, 0.5, 48), MARK.pick, i, 0.06));
     if (v.selected !== null) this.flat(new THREE.RingGeometry(0.42, 0.5, 48), MARK.sel, v.selected);
     for (const m of v.moves) {
       if (m.cap.length) this.flat(new THREE.RingGeometry(0.36, 0.44, 48), MARK.hit, m.to, 0.058);

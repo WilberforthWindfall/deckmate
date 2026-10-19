@@ -7,11 +7,14 @@ export interface Piece { t: PieceType; s: Side; shielded?: boolean }
 export type Square = Piece | null;
 export type CardKey = 'grog' | 'kopf' | 'boee' | 'arzt' | 'wache' | 'blatt';
 export type Rng = () => number;
+export type Terrain = 'ebene' | 'fluss' | 'gebirge' | 'huegel';
+export interface Army { house: string; size: number; spec: { CAP: number; KAP: number; KAN: number; MAR: number } }
+export interface BattleInfo { province: string; terrain: Terrain; attacker: Army; defender: Army; first?: Side }
 
 export interface Move { from: number; to: number; path: number[]; cap: number[]; retreat?: boolean }
 export interface LastMove extends Move { t: PieceType; s: Side }
 
-export interface Options { mPflicht: boolean; sideFirst: boolean }
+export interface Options { mPflicht: boolean; sideFirst: boolean; /** Furt (Flussgelände): Infanteristen ohne Doppelschritt. */ furt?: boolean }
 
 export interface GameState {
   v: number;
@@ -28,6 +31,10 @@ export interface GameState {
   options: Options;
   lastMove: LastMove | null;
   lastDice: [number, number] | null;
+  /** Campaign battle: who fights where (see battle.ts). */
+  battle?: BattleInfo;
+  /** Before the start of a campaign battle: pieces each side still has to take off the board. */
+  deploy?: Partial<Record<Side, Partial<Record<PieceType, number>>>>;
   log: string[];
 }
 
@@ -127,7 +134,7 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
     if (inB(r + 1, c) && !board[one]) {
       out.push({ from, to: one, cap: [], path: [one] });
       const two = idx(r + 2, c);
-      if (r === 1 && !board[two]) out.push({ from, to: two, cap: [], path: [two] });
+      if (r === 1 && !board[two] && !options.furt) out.push({ from, to: two, cap: [], path: [two] });
     }
     for (const dc of [-1, 1]) {
       const rr = r + 1, cc = c + dc;
@@ -210,6 +217,8 @@ export function newGame(rng: Rng, options: Options = DEFAULT_OPTIONS): GameState
 
 export function startGame(prev: GameState, side: Side, note?: string): GameState {
   if (prev.phase !== 'setup') throw new Error('Die Partie läuft bereits.');
+  if (prev.deploy) throw new Error('Erst aufstellen: Beide Seiten müssen ihre fehlenden Figuren vom Brett nehmen.');
+  if (prev.battle?.first && prev.battle.first !== side) throw new Error(`Hier beginnen die ${SIDE_NAME[prev.battle.first]}.`);
   const st = clone(prev);
   st.phase = 'play'; st.turn = side; st.v++;
   if (note) pushLog(st, note);
