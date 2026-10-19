@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Table3D } from '../three/Table3D.ts';
 import type { Action } from '../game/actions.ts';
+import { TERRAIN, battleResult, deployText } from '../game/battle.ts';
 import {
   CARDS, PIECES, SIDE_NAME, cardBlocker, legalMoves, sqName, type GameState, type Options, type PieceType, type Side,
 } from '../game/rules.ts';
@@ -34,6 +35,11 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
 
   const controls = (s: Side) => freeMode || mySide === null || mySide === s;
 
+  const pickable = st.phase === 'setup' && st.deploy
+    ? st.board.flatMap((q, i) => (q && controls(q.s) && (st.deploy?.[q.s]?.[q.t] ?? 0) > 0 ? [i] : []))
+    : undefined;
+  const result = battleResult(st);
+
   const moves = useMemo(() => {
     if (sel === null) return [];
     const p = st.board[sel];
@@ -52,6 +58,12 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     onCard: (side: Side, index: number) => setSelCard({ side, index }),
   });
   handlers.current.onSquare = (i: number) => {
+    if (st.phase === 'setup' && st.deploy) {
+      const q = st.board[i];
+      if (q && controls(q.s) && (st.deploy[q.s]?.[q.t] ?? 0) > 0) send({ type: 'remove', at: i });
+      else if (q && controls(q.s)) { setToast(q.t === 'FL' ? 'Der First Leutnant führt das Heer und bleibt auf dem Brett.' : 'Von dieser Figur fehlt deinem Heer keine.'); setTimeout(() => setToast(''), 2600); }
+      return;
+    }
     if (st.fx.shieldPick && controls(st.turn)) {
       const p = st.board[i];
       if (p && p.s === st.turn) send({ type: 'shield', at: i });
@@ -75,7 +87,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   }, []);
 
   useEffect(() => {
-    table.current?.update({ state: st, selected: sel, moves, shieldPick: st.fx.shieldPick && controls(st.turn), selectedCard: selCard });
+    table.current?.update({ state: st, selected: sel, moves, shieldPick: st.fx.shieldPick && controls(st.turn), selectedCard: selCard, pickable });
   });
 
   useEffect(() => { if (follow && st.phase === 'play') table.current?.face(st.turn); }, [st.turn, st.phase, follow]);
@@ -128,24 +140,40 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <button type="button" aria-label="Weiter weg" onClick={() => table.current?.zoom(1.5)}>−</button>
         </div>
         {!freeMode && st.phase === 'play' && st.fx.shieldPick && controls(st.turn) && (
-          <div className="toast" role="status" style={{ top: 70 }}>Ehrenwache: Tippe jetzt eine eigene Figur an. Sie wird geschützt, danach ziehst du wie gewohnt.</div>
+          <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Ehrenwache: Tippe jetzt eine eigene Figur an. Sie wird geschützt, danach ziehst du wie gewohnt.</div>
         )}
         {waiting && <div className="overlay"><div className="dialog">{waiting}</div></div>}
-        {!waiting && !freeMode && st.phase === 'setup' && (
+        {!waiting && !freeMode && st.phase === 'setup' && st.deploy && (
+          <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Aufstellung: Tippe die Figuren an, die deinem Heer fehlen. Ihre Felder bleiben in der Schlacht leer.</div>
+        )}
+        {!waiting && !freeMode && st.phase === 'setup' && !st.deploy && (
           <div className="overlay"><div className="dialog">
-            <h2>Wer sticht zuerst in See?</h2>
-            <p>Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch. Pro Zug darf eine Karte gespielt werden, vor oder nach dem Ziehen.</p>
-            <div className="row" style={{ justifyContent: 'center' }}>
-              <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'M' })}>Mannschaft beginnt</button>
-              <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'O' })}>Offiziere beginnen</button>
-              <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: 'roll' })}>Würfeln lassen</button>
-            </div>
+            <h2>{st.battle ? `Schlacht um ${st.battle.province}` : 'Wer sticht zuerst in See?'}</h2>
+            <p>{st.battle ? 'Die Karten liegen vor jeder Seite auf dem Tisch.' : 'Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch.'} Pro Zug darf eine Karte gespielt werden, vor oder nach dem Ziehen.</p>
+            {st.battle?.first ? (
+              <div className="row" style={{ justifyContent: 'center' }}>
+                <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: st.battle!.first! })}>{SIDE_NAME[st.battle.first]} beginnen ({TERRAIN[st.battle.terrain].n})</button>
+              </div>
+            ) : (
+              <div className="row" style={{ justifyContent: 'center' }}>
+                <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'M' })}>Mannschaft beginnt</button>
+                <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'O' })}>Offiziere beginnen</button>
+                <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: 'roll' })}>Würfeln lassen</button>
+              </div>
+            )}
           </div></div>
         )}
         {!freeMode && st.phase === 'over' && !hideOver && (
           <div className="overlay"><div className="dialog">
-            <h2>{mySide === null ? `${SIDE_NAME[st.winner!]} gewinnen` : st.winner === mySide ? 'Sieg!' : 'Niederlage'}</h2>
+            <h2>{result ? result.headline : mySide === null ? `${SIDE_NAME[st.winner!]} gewinnen` : st.winner === mySide ? 'Sieg!' : 'Niederlage'}</h2>
             <p>{st.winReason} Die Partie dauerte {st.moveNo - 1} Züge.</p>
+            {result && <>
+              <p>{result.detail}</p>
+              <div className="stack" style={{ gap: 4, textAlign: 'left' }}>
+                <div className="rule"><b>{result.attacker.house}</b> (Offiziere): {result.attacker.size} Figuren zurück aufs Kartenfeld, {result.attacker.lost} verloren</div>
+                <div className="rule"><b>{result.defender.house}</b> (Mannschaft): {result.defender.size} Steine zurück, {result.defender.lost} verloren</div>
+              </div>
+            </>}
             <div className="row" style={{ justifyContent: 'center' }}>{overActions}<button type="button" onClick={() => setHideOver(true)}>Brett ansehen</button></div>
           </div></div>
         )}
@@ -175,6 +203,22 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
                 <button key={t} type="button" disabled={sending} onClick={() => send({ type: 'convert', t })}>{PIECES[t].n}</button>)}</div>
                 : <div className="warn" style={{ marginTop: 8 }}>Die Offiziere wählen die neue Figur.</div>}
             </>}
+          </div>
+        )}
+        {st.battle && (
+          <div className="card">
+            <div className="lbl">Schlacht um {st.battle.province}</div>
+            <div className="rule" style={{ marginTop: 4 }}><b>{st.battle.attacker.house}</b> greift an (Offiziere) · <b>{st.battle.defender.house}</b> verteidigt (Mannschaft)</div>
+            <div className="rule" style={{ marginTop: 4 }}>Gelände {TERRAIN[st.battle.terrain].n}: {TERRAIN[st.battle.terrain].rule}</div>
+          </div>
+        )}
+        {st.phase === 'setup' && st.deploy && (
+          <div className="card promo">
+            <h2>Aufstellung</h2>
+            <div className="rule">Jede Seite nimmt selbst die Figuren vom Brett, die ihrem Heer fehlen. Die hellblau markierten Figuren kommen dafür infrage.</div>
+            {(['O', 'M'] as Side[]).map((s) => st.deploy?.[s] && (
+              <div key={s} className={`side ${s}`} style={{ marginTop: 8 }}>{SIDE_NAME[s]}: noch {deployText(st, s)} entfernen</div>
+            ))}
           </div>
         )}
         {afterMoveWait && (

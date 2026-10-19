@@ -6,6 +6,7 @@ import Login from './pages/Login.tsx';
 import Lobby from './pages/Lobby.tsx';
 import OnlineGame from './pages/OnlineGame.tsx';
 import LocalGame from './pages/LocalGame.tsx';
+import BattleTest from './pages/BattleTest.tsx';
 import './styles.css';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -22,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/" element={<Protected><Lobby /></Protected>} />
           <Route path="/spiel/:id" element={<Protected><OnlineGame /></Protected>} />
           <Route path="/lokal" element={<LocalGame />} />
+          <Route path="/schlacht" element={<BattleTest />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

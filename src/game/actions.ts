@@ -4,6 +4,7 @@ import {
   applyMove, chooseShield, endTurn, playCard, resign, resolveConversion, resolvePromotionRoll, rollDie, startGame,
   SIDE_NAME, type GameState, type PieceType, type Rng, type Side,
 } from './rules.ts';
+import { removePiece } from './battle.ts';
 
 export type Action =
   | { type: 'start'; first: Side | 'roll' }
@@ -13,6 +14,7 @@ export type Action =
   | { type: 'card'; side: Side; index: number }
   | { type: 'shield'; at: number }
   | { type: 'endTurn' }
+  | { type: 'remove'; at: number }
   | { type: 'resign'; side: Side };
 
 /** Which side is allowed to send this action, or null if either may (start). */
@@ -23,6 +25,7 @@ export function actorOf(st: GameState, a: Action): Side | null {
     case 'convert': return 'O';
     case 'card': return a.side;
     case 'resign': return a.side;
+    case 'remove': return st.board[a.at]?.s ?? null;
     default: return st.turn;
   }
 }
@@ -42,6 +45,7 @@ export function act(st: GameState, a: Action, rng: Rng): GameState {
     case 'card': return playCard(st, a.side, a.index, rng);
     case 'shield': return chooseShield(st, a.at);
     case 'endTurn': return endTurn(st, st.turn);
+    case 'remove': return removePiece(st, a.at);
     case 'resign': return resign(st, a.side);
   }
 }
