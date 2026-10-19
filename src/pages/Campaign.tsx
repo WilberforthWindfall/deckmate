@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
@@ -7,8 +7,8 @@ import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import {
-  BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, orderProblem, score, sealOrders,
-  type CArmy, type Campaign as CampaignState, type Order, type SpecKey,
+  BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, movePreview, orderProblem, score, sealOrders,
+  type CArmy, type Campaign as CampaignState, type Order, type SpecKey, type Tone,
 } from '../campaign/engine.ts';
 import { ADJ, HOUSES, LAND, PROV, PROVINCES, type House } from '../campaign/map.ts';
 
@@ -35,75 +35,89 @@ const specText = (a: CArmy) => {
   return parts.length ? parts.join(', ') : 'keine Spezialisten';
 };
 
-type Menu = { prov: string; x: number; y: number; kind: 'choose' | 'army' };
-
 export default function Campaign() {
   const [c, setC] = useState<CampaignState>(load);
   const [ready, setReady] = useState(false);
   const [draft, setDraft] = useState<Order[]>([]);
   const [sel, setSel] = useState<string | null>(null);
-  const [menu, setMenu] = useState<Menu | null>(null);
-  const [mode, setMode] = useState<null | { kind: 'move' | 'support'; army: string }>(null);
+  const [armySel, setArmySel] = useState<string | null>(null);
+  const [mode, setMode] = useState<'move' | 'support'>('move');
   const [city, setCity] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [battle, setBattle] = useState<{ id: string; st: GameState } | null>(null);
+  /** Reveal animation after both houses sealed: first all orders as arrows, then the armies march. */
+  const [show, setShow] = useState<null | 'orders' | 'move'>(null);
+  const [banner, setBanner] = useState<number | null>(null);
+  const shownRound = useRef(0);
   const stage = useRef<HTMLDivElement>(null);
 
   useEffect(() => save(c), [c]);
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMenu(null); setMode(null); setCity(null); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setArmySel(null); setCity(null); } };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, []);
-  const h = c.current;
-  const giving = c.phase === 'orders' && ready;
-  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+  useEffect(() => { if (c.reveal && show === null) setShow('orders'); }, [c.reveal, show]);
+  useEffect(() => {
+    if (show === 'orders') { const t = setTimeout(() => setShow('move'), 3500); return () => clearTimeout(t); }
+    if (show === 'move') { const t = setTimeout(() => { setShow(null); setC((p) => ({ ...p, reveal: null })); }, 1300); return () => clearTimeout(t); }
+  }, [show]);
+  useEffect(() => {
+    if (!show && !c.reveal && c.phase === 'orders' && !ready && shownRound.current !== c.round) { shownRound.current = c.round; setBanner(c.round); }
+  }, [show, c.reveal, c.phase, c.round, ready]);
+  useEffect(() => { if (banner !== null) { const t = setTimeout(() => setBanner(null), 2600); return () => clearTimeout(t); } }, [banner]);
 
-  const targets = useMemo(() => {
-    if (!mode) return [];
-    const a = armyById(c, mode.army);
-    return a ? ADJ[a.prov] : [];
-  }, [mode, c]);
+  const h = c.current;
+  const giving = c.phase === 'orders' && ready && !show;
+  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
 
   const why = (o: Order) => orderProblem(c, h, o, draft);
   function add(o: Order) {
     const w = why(o);
     if (w) { flash(w); return; }
-    setDraft([...draft, o]); setMode(null); setMenu(null);
+    setDraft([...draft, o]); setArmySel(null); setMode('move');
   }
-  function openCity(id: string) { setMenu(null); setCity(id); }
+  function openCity(id: string) { setArmySel(null); setCity(id); }
 
-  function onProvince(id: string, at: { x: number; y: number }) {
+  const orderOf = (armyId: string) => draft.findIndex((o) => 'army' in o && o.army === armyId);
+  const selArmy = armySel ? armyById(c, armySel) : null;
+  const selOrder = selArmy ? orderOf(selArmy.id) : -1;
+  const targeting = !!(giving && selArmy && selArmy.house === h && selOrder < 0 && draft.length < ORDERS_PER_ROUND);
+  const targets = targeting ? ADJ[selArmy!.prov] : [];
+
+  function onArmy(id: string) {
+    const a = armyById(c, id);
+    if (!a) return;
+    if (targeting && a.id !== selArmy!.id && targets.includes(a.prov)) { onProvince(a.prov); return; }
+    setCity(null); setSel(a.prov);
+    if (!giving || a.house !== h) { setArmySel(null); return; }
+    if (armySel === id) { setArmySel(null); return; }
+    setArmySel(id); setMode('move');
+  }
+
+  function onProvince(id: string) {
     setSel(id);
-    if (!giving) { setMenu(null); setCity(PROV[id].city ? id : null); return; }
-    if (mode) {
-      const own = armyAt(c, id);
-      if (own && own.id === mode.army) { setMode(null); return; }
-      if (!targets.includes(id) && own && own.house === h) { setMode(null); return onProvince(id, at); }
-      if (!targets.includes(id)) { flash('Das ist keine Nachbarprovinz.'); return; }
-      add(mode.kind === 'move' ? { kind: 'move', army: mode.army, to: id } : { kind: 'support', army: mode.army, target: id });
+    if (targeting && targets.includes(id)) {
+      add(mode === 'move' ? { kind: 'move', army: selArmy!.id, to: id } : { kind: 'support', army: selArmy!.id, target: id });
       return;
     }
-    const r = stage.current?.getBoundingClientRect();
-    const pos = { x: at.x - (r?.left ?? 0), y: at.y - (r?.top ?? 0) };
+    if (PROV[id].city) { openCity(id); return; }
+    setCity(null);
     const a = armyAt(c, id);
-    const ownArmy = !!a && a.house === h;
-    const ownCity = !!PROV[id].city && c.owner[id] === h;
-    if (ownArmy && ownCity) { setCity(null); setMenu({ prov: id, ...pos, kind: 'choose' }); }
-    else if (ownArmy) { setCity(null); setMenu({ prov: id, ...pos, kind: 'army' }); }
-    else if (PROV[id].city) openCity(id);
-    else { setMenu(null); setCity(null); }
+    if (giving && a && a.house === h) { onArmy(a.id); return; }
+    setArmySel(null);
   }
 
   function seal() {
     try {
       const next = sealOrders(c, h, draft, Math.random);
-      setC(next); setDraft([]); setSel(null); setMode(null); setMenu(null); setCity(null); setReady(false);
+      setC(next); setDraft([]); setSel(null); setArmySel(null); setCity(null); setReady(false);
     } catch (e) { flash((e as Error).message); }
   }
   function restart() {
     if (!confirm('Kampagne neu beginnen? Der aktuelle Stand geht verloren.')) return;
-    setC(newCampaign()); setDraft([]); setReady(false); setSel(null); setMode(null); setMenu(null); setBattle(null);
+    shownRound.current = 0;
+    setC(newCampaign()); setDraft([]); setReady(false); setSel(null); setArmySel(null); setCity(null); setBattle(null); setShow(null);
   }
   function takeBattle() {
     if (!battle) return;
@@ -133,27 +147,21 @@ export default function Campaign() {
     );
   }
 
-  const orderOf = (armyId: string) => draft.findIndex((o) => 'army' in o && o.army === armyId);
   const cityOrder = (prov: string) => draft.findIndex((o) => (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') && o.prov === prov);
   const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(o), 0);
-  const phaseText = c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
+  const phaseText = show ? 'Befehle werden aufgedeckt' : c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
 
-  const menuArmy = menu ? armyAt(c, menu.prov) : null;
-  const menuStyle = menu ? {
-    position: 'absolute' as const, zIndex: 5, width: 280,
-    left: Math.min(Math.max(8, menu.x + 14), (stage.current?.clientWidth ?? 900) - 290),
-    top: Math.min(Math.max(64, menu.y - 20), (stage.current?.clientHeight ?? 700) - 260),
-  } : undefined;
+  const labels: Record<string, { text: string; tone: Tone }> = {};
+  if (targeting) for (const t of targets) labels[t] = mode === 'move' ? movePreview(c, h, selArmy!.id, t, draft) : { text: `+${String(selArmy!.size / 2).replace('.', ',')} Stärke`, tone: 'plain' };
+  const idle = giving ? c.armies.filter((a) => a.house === h && !a.prov.startsWith('@') && orderOf(a.id) < 0) : [];
 
-  const ActionBtn = ({ o, label }: { o: Order; label: string }) => {
-    const w = why(o);
-    return (
-      <div className="stack" style={{ gap: 2 }}>
-        <button type="button" className={w ? 'muted' : ''} title={w || undefined} onClick={() => add(o)}>{label}</button>
-        {w && <span className="rule" style={{ fontSize: 12 }}>{w}</span>}
-      </div>
-    );
-  };
+  // What the map shows: during the first reveal step the positions before the march and all orders of both houses.
+  const before = show === 'orders' && c.reveal ? c.reveal : null;
+  const mapC = before ? { ...c, round: before.round, armies: before.armies, owner: before.owner, gold: before.gold ?? c.gold, battles: [] } : c;
+  const mapOrders = show === 'orders' && c.reveal ? [...c.reveal.orders.R, ...c.reveal.orders.K] : giving ? draft : [];
+
+  const forage = selArmy ? LAND[PROV[selArmy.prov].land].forage : 0;
+  const forageWhy = selArmy ? why({ kind: 'forage', army: selArmy.id }) : '';
 
   return (
     <div className="app">
@@ -164,7 +172,7 @@ export default function Campaign() {
         }}>
           <div className="row" style={{ gap: 10 }}>
             {(['R', 'K'] as House[]).map((x) => {
-              const provs = PROVINCES.filter((p) => c.owner[p.id] === x);
+              const provs = PROVINCES.filter((p) => mapC.owner[p.id] === x);
               const hidden = giving && x !== h;
               const active = giving && x === h;
               return (
@@ -174,17 +182,17 @@ export default function Campaign() {
                 }}>
                   <span style={{ width: 12, height: 12, borderRadius: '50%', background: HOUSES[x].color, boxShadow: active ? `0 0 0 3px color-mix(in srgb, ${HOUSES[x].color} 35%, transparent)` : undefined }} />
                   <b style={{ fontFamily: 'var(--display)' }}>{HOUSES[x].n}</b>
-                  <Stat label="Gold" value={hidden ? '?' : active ? `${goldLeft}/${c.gold[x]}` : c.gold[x]} title={active ? 'Verfügbar nach geplanten Befehlen / gesamt' : undefined} />
+                  <Stat label="Gold" value={hidden ? '?' : active ? `${goldLeft}/${mapC.gold[x]}` : mapC.gold[x]} title={active ? 'Verfügbar nach geplanten Befehlen / gesamt' : undefined} />
                   <Stat label="Provinzen" value={provs.length} />
                   <Stat label="Städte" value={provs.filter((p) => p.city).length} />
-                  <Stat label="Punkte" value={score(c, x)} />
+                  <Stat label="Punkte" value={score(mapC, x)} />
                 </div>
               );
             })}
           </div>
           <div className="row" style={{ gap: 10 }}>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: 'var(--display)', fontSize: 17, color: 'var(--brass)' }}>Runde {c.round} von {c.maxRounds}</div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 17, color: 'var(--brass)' }}>Runde {mapC.round} von {c.maxRounds}</div>
               <div className="rule" style={{ fontSize: 12 }}>{phaseText}</div>
             </div>
             {giving && <Stat label="Befehle" value={`${draft.length}/${ORDERS_PER_ROUND}`} />}
@@ -192,44 +200,71 @@ export default function Campaign() {
         </div>
 
         <div style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
-          <CampaignMap c={c} selected={sel} targets={targets} orders={giving ? draft : []} onProvince={onProvince} />
-        </div>
+          <CampaignMap c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
+            onArmy={onArmy} selectedArmy={armySel} labels={labels} />
 
-        {menu && menuStyle && (
-          <div className="card stack" style={{ ...menuStyle, gap: 8, background: 'var(--hull)', borderColor: 'var(--brass)' }} role="dialog" aria-label={`Aktionen für ${PROV[menu.prov].n}`}>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <b style={{ fontFamily: 'var(--display)', fontSize: 16 }}>{PROV[menu.prov].n}</b>
-              <button type="button" className="ghost" aria-label="Schließen" onClick={() => setMenu(null)}>×</button>
+          {giving && selArmy && selArmy.house === h && (
+            <div role="dialog" aria-label={`Heer in ${PROV[selArmy.prov].n}`} className="card" style={{
+              position: 'absolute', left: (city ? 330 : 0) + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 660, zIndex: 5,
+              display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'var(--hull)', borderColor: 'var(--brass)',
+              boxShadow: '0 10px 30px rgba(0,0,0,.4)',
+            }}>
+              <div className="stack" style={{ gap: 2, flex: '1 1 240px', minWidth: 0 }}>
+                <b style={{ fontFamily: 'var(--display)' }}>Heer in {PROV[selArmy.prov].n} · {selArmy.size} Figuren</b>
+                <span className="rule" style={{ fontSize: 12 }}>{specText(selArmy)}</span>
+                <span style={{ fontSize: 13 }}>
+                  {selOrder >= 0 ? `Befehl: ${describe(c, draft[selOrder])}`
+                    : !targeting ? `Alle ${ORDERS_PER_ROUND} Befehle dieser Runde sind vergeben.`
+                    : mode === 'move' ? 'Tippe eine leuchtende Nachbarprovinz an, um dorthin zu ziehen. Gegnerische Unterstützung ist geheim und nicht eingerechnet.'
+                    : 'Welche Nachbarprovinz soll das Heer unterstützen? Es zählt mit halber Größe.'}
+                </span>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                {selOrder >= 0 && <button type="button" onClick={() => setDraft(draft.filter((_, j) => j !== selOrder))}>Befehl zurücknehmen</button>}
+                {targeting && (mode === 'move'
+                  ? <button type="button" onClick={() => setMode('support')}>Unterstützen …</button>
+                  : <button type="button" onClick={() => setMode('move')}>Ziehen …</button>)}
+                {targeting && <button type="button" className={forageWhy ? 'muted' : ''} title={forageWhy || undefined} onClick={() => add({ kind: 'forage', army: selArmy.id })}>Fouragieren (+{forage})</button>}
+                <button type="button" className="ghost" aria-label="Auswahl aufheben" onClick={() => setArmySel(null)}>×</button>
+              </div>
             </div>
+          )}
 
-            {menu.kind === 'choose' && menuArmy && <>
-              <span className="rule">Hier stehen ein Heer und eine Stadt. Was möchtest du auswählen?</span>
-              <button type="button" onClick={() => setMenu({ ...menu, kind: 'army' })}>Heer · {menuArmy.size} Figuren</button>
-              <button type="button" onClick={() => openCity(menu.prov)}>Stadt {PROV[menu.prov].n}</button>
-            </>}
-
-            {menu.kind === 'army' && menuArmy && <>
-              <span className="rule">Heer von {HOUSES[menuArmy.house].n}: {menuArmy.size} Figuren, {specText(menuArmy)}</span>
-              {orderOf(menuArmy.id) >= 0 ? <>
-                <span>Befehl: {describe(c, draft[orderOf(menuArmy.id)])}</span>
-                <button type="button" onClick={() => { setDraft(draft.filter((_, j) => j !== orderOf(menuArmy.id))); }}>Befehl zurücknehmen</button>
-              </> : <>
-                <button type="button" className={draft.length >= ORDERS_PER_ROUND ? 'muted' : ''} onClick={() => { if (draft.length >= ORDERS_PER_ROUND) { flash(`Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`); return; } setMode({ kind: 'move', army: menuArmy.id }); setMenu(null); }}>Ziehen …</button>
-                <button type="button" className={draft.length >= ORDERS_PER_ROUND ? 'muted' : ''} onClick={() => { if (draft.length >= ORDERS_PER_ROUND) { flash(`Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`); return; } setMode({ kind: 'support', army: menuArmy.id }); setMenu(null); }}>Unterstützen …</button>
-                <ActionBtn o={{ kind: 'forage', army: menuArmy.id }} label={`Fouragieren (+${LAND[PROV[menu.prov].land].forage})`} />
-                <span className="rule" style={{ fontSize: 12 }}>Ohne Befehl hält das Heer seine Stellung.</span>
-              </>}
-            </>}
-
-          </div>
-        )}
+          {show && c.reveal && (
+            <div role="status" style={{
+              position: 'absolute', top: 16, left: 0, right: 0, margin: '0 auto', width: 'max-content', maxWidth: 'calc(100% - 32px)', zIndex: 6,
+              display: 'flex', gap: 14, alignItems: 'center', padding: '10px 18px', borderRadius: 10,
+              background: 'color-mix(in srgb, var(--hull) 92%, transparent)', border: '1px solid var(--brass)', boxShadow: '0 10px 30px rgba(0,0,0,.4)',
+            }}>
+              <span style={{ fontFamily: 'var(--display)', fontSize: 18, color: 'var(--brass)' }}>Runde {c.reveal.round}</span>
+              <span>{show === 'orders' ? 'Die Befehle beider Häuser werden aufgedeckt.' : 'Die Heere ziehen …'}</span>
+              {show === 'orders' && <button type="button" onClick={() => setShow('move')}>Heere ziehen lassen</button>}
+            </div>
+          )}
+        </div>
 
         {city && <CityPanel c={c} prov={city} house={h} giving={giving} draft={draft} why={why} add={add}
           orderIndex={cityOrder(city)} onRemove={(i) => setDraft(draft.filter((_, j) => j !== i))} onClose={() => setCity(null)} />}
 
         {msg && <div className="toast" role="alert" style={{ top: 76 }}>{msg}</div>}
-        {mode && <div className="toast" role="status" style={{ top: 'auto', bottom: 24 }}>{mode.kind === 'move' ? 'Wohin soll das Heer ziehen?' : 'Welche Nachbarprovinz soll das Heer unterstützen?'} Tippe eine hellblaue Provinz an. <button type="button" className="ghost" onClick={() => setMode(null)}>Abbrechen</button></div>}
-        {c.phase === 'orders' && !ready && (
+
+        {banner !== null && (
+          <div className="overlay round-banner" role="status" onClick={() => setBanner(null)} style={{ cursor: 'pointer', zIndex: 20 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, justifyContent: 'center', color: 'var(--brass)' }}>
+                <span style={{ height: 1, width: 90, background: 'linear-gradient(90deg, transparent, var(--brass))' }} />
+                <span style={{ fontSize: 14 }}>✦</span>
+                <span style={{ height: 1, width: 90, background: 'linear-gradient(270deg, transparent, var(--brass))' }} />
+              </div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 64, lineHeight: 1.1, color: '#F1E3BE', textShadow: '0 4px 24px rgba(0,0,0,.6)', margin: '6px 0' }}>Runde {banner}</div>
+              <div className="rule" style={{ fontSize: 15, color: 'var(--parchment)' }}>
+                von {c.maxRounds} · Ravensmoor {score(c, 'R')} : {score(c, 'K')} Kerrow
+              </div>
+            </div>
+          </div>
+        )}
+
+        {c.phase === 'orders' && !ready && !show && banner === null && (
           <div className="overlay"><div className="dialog">
             <h2>Runde {c.round}: {HOUSES[h].n}</h2>
             <p>Gib das Gerät an <b>{HOUSES[h].n}</b>. {HOUSES[OTHER[h]].n} schaut bitte weg, die Befehle sind geheim.</p>
@@ -237,12 +272,12 @@ export default function Campaign() {
             <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => setReady(true)}>Ich bin {HOUSES[h].n}</button></div>
           </div></div>
         )}
-        {c.phase === 'over' && (
+        {c.phase === 'over' && !show && (
           <div className="overlay"><div className="dialog">
             <h2>{c.winner ? `${HOUSES[c.winner].n} gewinnt` : 'Unentschieden'}</h2>
             <p>{c.winReason}</p>
             <p>Punkte: Ravensmoor {score(c, 'R')} · Kerrow {score(c, 'K')}</p>
-            <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => { setC(newCampaign()); setReady(false); }}>Neue Kampagne</button></div>
+            <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => { shownRound.current = 0; setC(newCampaign()); setReady(false); }}>Neue Kampagne</button></div>
           </div></div>
         )}
       </div>
@@ -250,7 +285,7 @@ export default function Campaign() {
       <aside className="panel">
         <div className="row" style={{ justifyContent: 'space-between' }}><Link to="/">← Zur Lobby</Link><div className="row" style={{ gap: 10 }}><span className="rule">Kampagne · Prototyp</span><HelpButton /></div></div>
 
-        {c.phase === 'battles' && (
+        {c.phase === 'battles' && !show && (
           <div className="card promo stack" style={{ gap: 8 }}>
             <h2>Schlachten</h2>
             <div className="rule">Knappe Kämpfe werden auf dem Brett ausgetragen. Der Angreifer führt die Offiziere. Jede Unterstützung gibt eine Karte extra.</div>
@@ -273,21 +308,29 @@ export default function Campaign() {
         {giving && (
           <div className="card stack" style={{ gap: 6 }}>
             <b>Befehle von {HOUSES[h].n}</b>
-            {draft.length === 0 && <span className="rule">Tippe ein eigenes Heer oder eine eigene Stadt auf der Karte an. Heere ohne Befehl halten ihre Stellung.</span>}
+            {draft.length === 0 && <span className="rule">Tippe die Fahne eines Heeres an, um es zu befehligen, oder ein Stadtfeld für das Stadtmenü.</span>}
             {draft.map((o, i) => (
               <div key={i} className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
                 <span>{describe(c, o)}</span>
                 <button type="button" className="ghost" aria-label="Befehl entfernen" onClick={() => setDraft(draft.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
+            {idle.length > 0 && draft.length < ORDERS_PER_ROUND && (
+              <div className="stack" style={{ gap: 4, padding: '8px 10px', borderRadius: 8, background: 'color-mix(in srgb, var(--brass) 10%, transparent)', border: '1px dashed var(--brass)' }}>
+                <span style={{ fontSize: 13 }}>{idle.length === 1 ? '1 Heer hat' : `${idle.length} Heere haben`} noch keinen Befehl und {idle.length === 1 ? 'hält' : 'halten'} sonst die Stellung:</span>
+                <div className="row" style={{ gap: 6 }}>
+                  {idle.map((a) => <button key={a.id} type="button" onClick={() => onArmy(a.id)}>{PROV[a.prov].n} ({a.size})</button>)}
+                </div>
+              </div>
+            )}
             <button type="button" className="primary" onClick={seal}>Befehle versiegeln</button>
           </div>
         )}
 
-        {sel && (
+        {sel && !PROV[sel].city && (
           <div className="card stack" style={{ gap: 4 }}>
             <h2>{PROV[sel].n}</h2>
-            <span className="rule">{LAND[PROV[sel].land].n}{PROV[sel].city ? ' · Stadt' : ''}{PROV[sel].capital ? ` · Hauptstadt von ${HOUSES[PROV[sel].capital!].n}` : ''} · {c.owner[sel] ? HOUSES[c.owner[sel]!].n : 'unbeansprucht'}</span>
+            <span className="rule">{LAND[PROV[sel].land].n} · {c.owner[sel] ? HOUSES[c.owner[sel]!].n : 'unbeansprucht'}</span>
             <span className="rule">{LAND[PROV[sel].land].note}</span>
             {armyAt(c, sel) && <span>Heer von {HOUSES[armyAt(c, sel)!.house].n}: {armyAt(c, sel)!.size} Figuren</span>}
           </div>
@@ -295,13 +338,9 @@ export default function Campaign() {
 
         <div className="card stack" style={{ gap: 4 }}>
           <div className="lbl">Bericht</div>
-          {c.report.slice(-14).map((l, i) => <span key={i} className="rule">{l}</span>)}
+          {before ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-14).map((l, i) => <span key={i} className="rule">{l}</span>)}
         </div>
-        <div className="card stack" style={{ gap: 4 }}>
-          <div className="lbl">Regeln kurz</div>
-          <span className="rule">Pro Runde {ORDERS_PER_ROUND} Befehle. Alle Befehle werden gleichzeitig ausgeführt. Stärke = Heer + halbe Größe unterstützender Heere, Verteidiger im Gebirge, auf Hügeln und im Wald stärker. Ab 1,5-facher Übermacht entscheidet sich ein Kampf von selbst, sonst kommt es zur Schlacht.</span>
-          <span className="rule">Einkommen: 1 Gold je Provinz, 2 je Stadt, +2 je Markt. Städte bauen Gebäude (Stadt anklicken, Menü links): Kapelle, Gießerei, Kaserne und Offiziersmesse schalten Spezialisten frei, die Stadtmauer stärkt Verteidiger um 30 %. Sieg: gegnerische Hauptstadt erobern oder nach {c.maxRounds} Runden die meisten Punkte (Provinz 1, Stadt 3).</span>
-        </div>
+        <span className="rule" style={{ fontSize: 12 }}>Alle Begriffe und Regeln stehen im Feldbuch hinter dem goldenen ?.</span>
         <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>
       </aside>
     </div>
