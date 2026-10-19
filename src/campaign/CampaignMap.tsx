@@ -12,7 +12,7 @@ interface Props {
   targets: string[];
   /** Orders to draw as arrows (only the active house's own, never the opponent's). */
   orders: Order[];
-  onProvince: (id: string) => void;
+  onProvince: (id: string, at: { x: number; y: number }) => void;
 }
 
 const pts = (p: [number, number][]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
@@ -61,7 +61,7 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince }
         return (
           <polygon key={`${h.c},${h.r}`} data-prov={h.prov!} points={pts(hexPoints(h.c, h.r))} fill={`url(#t-${isSeedCity ? 'stadt' : TILE[h.land!]})`}
             stroke="#241B10" strokeOpacity={0.45} strokeWidth={1}
-            style={{ cursor: 'pointer' }} onClick={() => onProvince(h.prov!)} />
+            style={{ cursor: 'pointer' }} onClick={(e) => onProvince(h.prov!, { x: e.clientX, y: e.clientY })} />
         );
       })}
 
