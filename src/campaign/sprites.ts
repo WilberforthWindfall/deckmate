@@ -5,7 +5,7 @@ import type { House } from './map.ts';
 import SIZES from './sprite-sizes.json';
 
 /** Width/height of each sprite file; empty until the sheets are cut. */
-export const SPRITE_SIZE = SIZES as Record<string, [number, number]>;
+export const SPRITE_SIZE = SIZES as unknown as Record<string, [number, number]>;
 export const spritesReady = () => Object.keys(SPRITE_SIZE).length > 0;
 
 export const spriteName = {

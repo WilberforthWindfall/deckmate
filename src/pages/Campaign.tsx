@@ -407,7 +407,7 @@ export default function Campaign() {
             : panel.kind === 'hex'
               ? <HexPanel c={c} hex={panel.hex} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
                   onCity={(p) => setPanel({ kind: 'city', prov: p })} />
-              : <Overview key={h} c={c} house={h} giving={giving} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
+              : <Overview key={h} c={mapC} house={h} giving={giving} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
                   onCity={(p) => { setPanel({ kind: 'city', prov: p }); }} />}
         </div>
 

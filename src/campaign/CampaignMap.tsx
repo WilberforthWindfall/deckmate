@@ -103,6 +103,7 @@ export default function CampaignMap(p: MapProps) {
           <marker key={h} id={`arrow-${h}`} viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0 0L10 5L0 10z" fill={HOUSES[h].color} /></marker>
         ))}
  <filter id="dm-rest"><feColorMatrix type="saturate" values="0.15" /><feComponentTransfer><feFuncA type="linear" slope="0.75" /></feComponentTransfer></filter>
+        <filter id="dm-pop" x="-20%" y="-20%" width="140%" height="140%"><feMorphology in="SourceAlpha" operator="dilate" radius="1.3" result="d" /><feFlood floodColor="#160F08" floodOpacity="0.85" /><feComposite in2="d" operator="in" result="o" /><feDropShadow in="o" dx="0" dy="1.5" stdDeviation="1.2" floodOpacity="0.5" result="os" /><feMerge><feMergeNode in="os" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         <radialGradient id="dm-shadow"><stop offset="0" stopColor="#000" stopOpacity="0.45" /><stop offset="1" stopColor="#000" stopOpacity="0" /></radialGradient>
         <marker id="arrow-plan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#F3D27A" /></marker>
       </defs>
@@ -148,13 +149,13 @@ export default function CampaignMap(p: MapProps) {
         const city = !!CITY_HEX[k];
         const name = spriteName.building(b);
         if (hasSprite(name)) {
-          const [w, h] = spriteBox(name, city ? 34 : 40);
+          const [w, h] = spriteBox(name, city ? 38 : 48);
           const bx = x + (city ? 20 : 0), by = y + (city ? 4 : 8);
           return (
             <g key={`b${k}`} pointerEvents="none">
               <title>{BUILDINGS[b].n}{active ? '' : ' (ruht)'}</title>
               <ellipse cx={bx} cy={by} rx={w * 0.42} ry={7} fill={o ? HOUSES[o].color : '#6E6A60'} opacity={0.55} />
-              <image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} filter={active ? undefined : 'url(#dm-rest)'} />
+              <g filter="url(#dm-pop)"><image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} filter={active ? undefined : 'url(#dm-rest)'} /></g>
               {!active && <g transform={`translate(${bx + w / 2 - 6},${by - h + 8})`}><circle r={7} fill="#7E2621" stroke="#F1E8D2" strokeWidth={1.2} /><path d="M-3,-3 L3,3 M3,-3 L-3,3" stroke="#F1E8D2" strokeWidth={1.6} /></g>}
             </g>
           );
@@ -178,7 +179,7 @@ export default function CampaignMap(p: MapProps) {
             <title>Im Bau: {BUILDINGS[s.b].n}</title>
             <ellipse cx={bx} cy={by} rx={17} ry={7} fill="none" stroke={HOUSES[s.house].color} strokeWidth={2} strokeDasharray="4 3" />
             {hasSprite(name)
-              ? (() => { const [w, h] = spriteBox(name, 36); return <image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} opacity={0.95} />; })()
+              ? (() => { const [w, h] = spriteBox(name, 46); return <image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} filter="url(#dm-pop)" />; })()
               : <g transform={`translate(${bx},${by - 9})`}>
                   <rect x={-16} y={-12} width={32} height={22} rx={5} fill="#F3EAD4" fillOpacity={0.92} stroke={HOUSES[s.house].color} strokeWidth={2} strokeDasharray="4 2.5" />
                   <path d="M-10,8 L-6,-9 M6,-9 L10,8 M-9,2 H9 M-7,-4 H7" stroke="#7A5A2E" strokeWidth={2.2} strokeLinecap="round" />
@@ -240,7 +241,7 @@ export default function CampaignMap(p: MapProps) {
             {walk && <Dust />}
             <g className={walk ? 'dm-march' : undefined}>
               {hasSprite(name)
-                ? (() => { const [w, h] = spriteBox(name, 24); return <image href={spriteUrl(name)} x={-w / 2} y={4 - h} width={w} height={h} />; })()
+                ? (() => { const [w, h] = spriteBox(name, 28); return <image href={spriteUrl(name)} x={-w / 2} y={4 - h} width={w} height={h} filter="url(#dm-pop)" />; })()
                 : <><rect x={-9} y={-6} width={18} height={9} rx={2} fill="#C9A15A" stroke={HOUSES[t.house].color} strokeWidth={2} /><circle cx={-5} cy={5} r={3} fill="#3B2F22" /><circle cx={5} cy={5} r={3} fill="#3B2F22" /></>}
               <path d="M-11,-14 v-9 l7,3 l-7,3" fill={HOUSES[t.house].color} stroke="#F1E8D2" strokeWidth={0.8} className="dm-flag" />
             </g>
@@ -255,11 +256,11 @@ export default function CampaignMap(p: MapProps) {
             style={{ cursor: onAgent ? 'pointer' : undefined, transform: `translate(${x + 17}px, ${y + 13}px)`, transition: `transform ${stepMs}ms ease-in-out` }}>
             {selectedUnit === g.id && <circle r={13} fill="none" stroke="#E2C27F" strokeWidth={2.5} />}
             {hasSprite(spriteName.agent(g.spec)) ? (() => {
-              const name = spriteName.agent(g.spec), [w, h] = spriteBox(name, 30);
+              const name = spriteName.agent(g.spec), [w, h] = spriteBox(name, 38);
               return <>
                 <ellipse cy={7} rx={9} ry={3.5} fill={HOUSES[g.house].color} stroke="#F1E8D2" strokeWidth={1} />
                 {moving?.has(g.id) && <Dust />}
-                <g className={moving?.has(g.id) ? 'dm-march' : 'dm-idle'}><image href={spriteUrl(name)} x={-w / 2} y={8 - h} width={w} height={h} /></g>
+                <g className={moving?.has(g.id) ? 'dm-march' : 'dm-idle'}><image href={spriteUrl(name)} x={-w / 2} y={8 - h} width={w} height={h} filter="url(#dm-pop)" /></g>
               </>;
             })() : <>
               <circle r={10} fill="#F1E8D2" stroke={HOUSES[g.house].color} strokeWidth={3} />
@@ -315,7 +316,7 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClic
   const name = spriteName.army(house, !!moving);
   const painted = hasSprite(name);
   const markIcon = mark && (
-    <g transform={painted ? 'translate(-20,10)' : 'translate(-22,13)'} aria-label={mark === 'move' ? 'zieht' : mark === 'support' ? 'unterstützt' : 'fouragiert'}>
+    <g transform={painted ? 'translate(-26,13)' : 'translate(-22,13)'} aria-label={mark === 'move' ? 'zieht' : mark === 'support' ? 'unterstützt' : 'fouragiert'}>
       <circle r={8.5} fill="#F1E8D2" stroke="#1E1A15" strokeWidth={1} />
       {mark === 'move' && <path d="M-4.5,0 H3 M0,-3.5 L4,0 L0,3.5" fill="none" stroke="#1E1A15" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />}
       {mark === 'support' && <path d="M-4,-4.5 H4 V0 Q4,3.5 0,5 Q-4,3.5 -4,0 Z" fill="#1E1A15" />}
@@ -323,7 +324,7 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClic
     </g>
   );
   if (painted) {
-    const [w, h] = spriteBox(name, 56);
+    const [w, h] = spriteBox(name, 72);
     return (
       <g data-army={house} data-army-id={id} onClick={onClick}
         style={{ cursor: onClick ? 'pointer' : undefined, transform: `translate(${x}px, ${y}px)`, transition: `transform ${ms}ms ease-in-out` }}>
@@ -331,13 +332,13 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClic
         {selected && <ellipse cy={12} rx={25} ry={9} fill="none" stroke="#E2C27F" strokeWidth={3} />}
         {moving && <Dust />}
         <g className={moving ? 'dm-march' : 'dm-idle'}>
-          <image href={spriteUrl(name)} x={-w / 2} y={14 - h} width={w} height={h} />
+          <image href={spriteUrl(name)} x={-w / 2} y={14 - h} width={w} height={h} filter="url(#dm-pop)" />
         </g>
-        <g transform="translate(0,20)">
+        <g transform="translate(-26,-6)">
           <rect x={-15} y={-8} width={30} height={16} rx={8} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={1.5} />
           <text y={4.5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={800} fontSize={12} fill="#FFF8F2">{size}</text>
         </g>
-        {spec > 0 && <g transform="translate(17,17)"><circle r={7} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
+        {spec > 0 && <g transform="translate(-15,-15)"><circle r={7} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
         {markIcon}
       </g>
     );
