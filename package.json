@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --no-warnings --test src/**/*.test.ts"
+    "test": "node --experimental-strip-types --no-warnings --test src/**/*.test.ts api/*.test.ts"
   },
   "dependencies": {
     "firebase": "^10.12.0",

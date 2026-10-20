@@ -52,6 +52,18 @@ export interface PendingBattle {
   defStrength: number;
 }
 
+/** One side of a conflict with the parts of its strength. */
+export interface ConflictSide {
+  house: House; army: string; from: string; size: number;
+  sup: { prov: string; size: number; add: number }[];
+  /** Terrain and wall factors, 1 if none (only defenders get them). */
+  terrain: number; wall: number; total: number;
+}
+export type Conflict =
+  | { kind: 'swap'; a: { house: House; army: string; from: string; to: string; size: number }; b: { house: House; army: string; from: string; to: string; size: number } }
+  | { kind: 'race'; prov: string; R: ConflictSide; K: ConflictSide; winner: House | null }
+  | { kind: 'attack'; prov: string; att: ConflictSide; def: ConflictSide; outcome: 'overrun' | 'repelled' | 'battle'; retreat?: string | null; attLost?: number; defLost?: number };
+
 export interface Campaign {
   v: 1;
   round: number;
@@ -71,6 +83,8 @@ export interface Campaign {
   winReason: string | null;
   nextId: number;
   /** Snapshot taken when the orders were revealed, for the reveal animation. Cleared by the UI afterwards. */
+  /** What happened in the conflicts of the last resolved round, step by step for the explanation cards. */
+  conflicts?: Conflict[];
   reveal?: { round: number; armies: CArmy[]; owner: Record<string, House | null>; gold: Record<House, number>; orders: Record<House, Order[]> } | null;
 }
 
@@ -191,6 +205,16 @@ export function strength(c: Campaign, a: CArmy, prov: string, supports: CArmy[],
   return Math.round(base * (defending ? LAND[PROV[prov].land].defense : 1) * wall * 10) / 10;
 }
 
+function sideOf(c: Campaign, a: CArmy, from: string, prov: string, supports: CArmy[], defending: boolean): ConflictSide {
+  return {
+    house: a.house, army: a.id, from, size: a.size,
+    sup: supports.map((x) => ({ prov: x.prov, size: x.size, add: x.size / 2 })),
+    terrain: defending ? LAND[PROV[prov].land].defense : 1,
+    wall: defending && hasBuilding(c, prov, 'mauer') ? 1.3 : 1,
+    total: strength(c, a, prov, supports, defending),
+  };
+}
+
 function retreatTarget(c: Campaign, a: CArmy, from: string, avoid: string[]): string | null {
   const opts = ADJ[from].filter((p) => !avoid.includes(p) && (c.owner[p] === a.house || c.owner[p] === null)
     && !c.armies.some((x) => x.prov === p && x.house !== a.house));
@@ -209,11 +233,13 @@ function placeArmy(c: Campaign, a: CArmy, prov: string, log: string[]) {
   c.owner[prov] = a.house;
 }
 
-function retreatOrDie(c: Campaign, a: CArmy, from: string, avoid: string[], log: string[]) {
-  if (a.size <= 0) { c.armies = c.armies.filter((x) => x.id !== a.id); return; }
+/** Moves a beaten army away; returns where it went, or null if it was destroyed. */
+function retreatOrDie(c: Campaign, a: CArmy, from: string, avoid: string[], log: string[]): string | null {
+  if (a.size <= 0) { c.armies = c.armies.filter((x) => x.id !== a.id); return null; }
   const t = retreatTarget(c, a, from, avoid);
-  if (t) { log.push(`${hn(a.house)} zieht sich mit ${a.size} Figuren nach ${pn(t)} zurück.`); placeArmy(c, a, t, log); }
-  else { c.armies = c.armies.filter((x) => x.id !== a.id); log.push(`${hn(a.house)} findet keinen Rückzugsweg, das Heer löst sich auf.`); }
+  if (t) { log.push(`${hn(a.house)} zieht sich mit ${a.size} Figuren nach ${pn(t)} zurück.`); placeArmy(c, a, t, log); return t; }
+  c.armies = c.armies.filter((x) => x.id !== a.id); log.push(`${hn(a.house)} findet keinen Rückzugsweg, das Heer löst sich auf.`);
+  return null;
 }
 
 const lose = (a: CArmy, share: number) => {
@@ -224,6 +250,7 @@ const lose = (a: CArmy, share: number) => {
 function resolve(c: Campaign, _rng: Rng): Campaign {
   c.reveal = { round: c.round, armies: clone(c.armies), owner: clone(c.owner), gold: { ...c.gold }, orders: clone(c.orders) };
   const log: string[] = [`Runde ${c.round}: Die Befehle werden aufgedeckt.`];
+  const conflicts: Conflict[] = [];
   const all = (['R', 'K'] as House[]).flatMap((h) => c.orders[h].map((o) => ({ h, o })));
 
   // 1. Training and supplies
@@ -256,13 +283,18 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
   // a) armies swapping places bounce off each other
   for (const m of [...moves]) {
     const back = moves.find((x) => x.h !== m.h && x.from === m.to && x.to === m.from);
-    if (back) { moves = moves.filter((x) => x !== m && x !== back); log.push(`${hn(m.h)} und ${hn(back.h)} prallen zwischen ${pn(m.from)} und ${pn(m.to)} aufeinander, beide halten ihre Stellung.`); }
+    if (back) {
+      conflicts.push({ kind: 'swap', a: { house: m.h, army: m.a.id, from: m.from, to: m.to, size: m.a.size }, b: { house: back.h, army: back.a.id, from: back.from, to: back.to, size: back.a.size } });
+      moves = moves.filter((x) => x !== m && x !== back); log.push(`${hn(m.h)} und ${hn(back.h)} prallen zwischen ${pn(m.from)} und ${pn(m.to)} aufeinander, beide halten ihre Stellung.`);
+    }
   }
   // b) both houses into the same province
   for (const to of [...new Set(moves.map((m) => m.to))]) {
     const r = moves.find((m) => m.to === to && m.h === 'R'), k = moves.find((m) => m.to === to && m.h === 'K');
     if (!r || !k) continue;
     const sr = strength(c, r.a, to, supFor('R', to), false), sk = strength(c, k.a, to, supFor('K', to), false);
+    const race: Conflict = { kind: 'race', prov: to, R: sideOf(c, r.a, r.from, to, supFor('R', to), false), K: sideOf(c, k.a, k.from, to, supFor('K', to), false), winner: sr >= AUTO_WIN * sk ? 'R' : sk >= AUTO_WIN * sr ? 'K' : null };
+    conflicts.push(race);
     if (sr >= AUTO_WIN * sk) { moves = moves.filter((m) => m !== k); log.push(`Wettlauf um ${pn(to)}: Ravensmoor ist klar stärker (${sr} zu ${sk}), Kerrow kehrt um.`); }
     else if (sk >= AUTO_WIN * sr) { moves = moves.filter((m) => m !== r); log.push(`Wettlauf um ${pn(to)}: Kerrow ist klar stärker (${sk} zu ${sr}), Ravensmoor kehrt um.`); }
     else { moves = moves.filter((m) => m !== r && m !== k); log.push(`Wettlauf um ${pn(to)}: Patt (${sr} zu ${sk}), beide kehren um.`); }
@@ -275,14 +307,24 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
     if (!holder) { log.push(`${hn(m.h)} zieht nach ${pn(m.to)}${c.owner[m.to] && c.owner[m.to] !== m.h ? ' und nimmt die Provinz ein' : ''}.`); continue; }
     const sa = strength(c, m.a, m.to, supFor(m.h, m.to), false);
     const sd = strength(c, holder, m.to, supFor(holder.house, m.to), true);
+    const attack: Conflict & { kind: 'attack' } = {
+      kind: 'attack', prov: m.to, att: sideOf(c, m.a, m.from, m.to, supFor(m.h, m.to), false), def: sideOf(c, holder, m.to, m.to, supFor(holder.house, m.to), true),
+      outcome: sa >= AUTO_WIN * sd ? 'overrun' : sd >= AUTO_WIN * sa ? 'repelled' : 'battle',
+    };
+    conflicts.push(attack);
+    (m as Mv & { conflict?: typeof attack }).conflict = attack;
     if (sa >= AUTO_WIN * sd) {
       log.push(`${hn(m.h)} überrennt ${pn(m.to)} (${sa} zu ${sd}).`);
+      const hs = holder.size, as = m.a.size;
       lose(holder, 0.5); lose(m.a, 0.2);
+      attack.defLost = hs - holder.size; attack.attLost = as - m.a.size;
       (m as Mv & { win?: boolean }).win = true;
       (m as Mv & { loser?: CArmy }).loser = holder;
     } else if (sd >= AUTO_WIN * sa) {
       log.push(`${hn(holder.house)} wehrt den Angriff auf ${pn(m.to)} klar ab (${sd} zu ${sa}).`);
+      const as = m.a.size;
       lose(m.a, 0.3);
+      attack.attLost = as - m.a.size;
       (m as Mv & { stay?: boolean }).stay = true;
     } else {
       battles.push({
@@ -294,9 +336,9 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
     }
   }
   // apply movement results
-  const done = (moves as (Mv & { win?: boolean; loser?: CArmy; stay?: boolean; battle?: boolean })[]).filter((m) => !m.stay && !m.battle);
+  const done = (moves as (Mv & { win?: boolean; loser?: CArmy; stay?: boolean; battle?: boolean; conflict?: Conflict & { kind: 'attack' } })[]).filter((m) => !m.stay && !m.battle);
   for (const m of done) m.a.prov = '@unterwegs';
-  for (const m of done) if (m.win && m.loser) retreatOrDie(c, m.loser, m.to, [m.from], log);
+  for (const m of done) if (m.win && m.loser) { const t = retreatOrDie(c, m.loser, m.to, [m.from], log); if (m.conflict) m.conflict.retreat = t; }
   for (const m of done) {
     if (m.a.size > 0) placeArmy(c, m.a, m.to, log); else c.armies = c.armies.filter((x) => x.id !== m.a.id);
   }
@@ -318,6 +360,7 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
   }
 
   c.report = log;
+  c.conflicts = conflicts;
   c.battles = battles;
   c.orders = { R: [], K: [] };
   c.sealed = { R: false, K: false };

@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent as RMouseEvent } from 'react';
+import { useMemo, type MouseEvent as RMouseEvent, type RefObject } from 'react';
 import {
   HEXES, HEX_R, HOUSES, LAND, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexPoints, hexSides, inGrid, provCenter, type House,
 } from './map.ts';
@@ -19,6 +19,11 @@ interface Props {
   selectedArmy?: string | null;
   /** Small signs on target provinces, e.g. the expected outcome of a move. */
   labels?: Record<string, { text: string; tone: Tone }>;
+  /** Provinces outlined in gold, e.g. the conflict being explained. */
+  focus?: string[];
+  /** Armies drawn at another spot (map coordinates), e.g. halfway on a march that turns back. */
+  posOverride?: Record<string, [number, number]>;
+  svgRef?: RefObject<SVGSVGElement>;
 }
 
 const TONE: Record<Tone, string> = { ok: '#2F6E40', risk: '#8C5A12', bad: '#7E2621', plain: '#2A3F55' };
@@ -27,7 +32,7 @@ type Mark = 'move' | 'support' | 'forage';
 const pts = (p: [number, number][]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const TILE: Record<string, string> = { A: 'acker', W: 'wald', S: 'sumpf', G: 'gebirge', F: 'fluss', K: 'kueste', H: 'huegel' };
 
-export default function CampaignMap({ c, selected, targets, orders, onProvince, onArmy, selectedArmy, labels }: Props) {
+export default function CampaignMap({ c, selected, targets, orders, onProvince, onArmy, selectedArmy, labels, focus, posOverride, svgRef }: Props) {
   const marks: Record<string, Mark> = {};
   for (const o of orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
   const geo = useMemo(() => {
@@ -52,7 +57,7 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince, 
 
 
   return (
-    <svg viewBox={`0 0 ${MAP_W.toFixed(0)} ${MAP_H.toFixed(0)}`} role="img" aria-label="Kampagnenkarte von Eridanos" style={{ width: '100%', height: '100%', display: 'block' }}>
+    <svg ref={svgRef} viewBox={`0 0 ${MAP_W.toFixed(0)} ${MAP_H.toFixed(0)}`} role="img" aria-label="Kampagnenkarte von Eridanos" style={{ width: '100%', height: '100%', display: 'block' }}>
       <defs>
         {Object.values(TILE).concat(['stadt']).map((t) => (
           <pattern key={t} id={`t-${t}`} patternContentUnits="objectBoundingBox" width="1" height="1">
@@ -99,6 +104,15 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince, 
         );
       })}
       <path d={geo.coast} fill="none" stroke="#3B2F22" strokeWidth={2.8} strokeLinecap="round" pointerEvents="none" />
+      {focus && focus.length > 0 && (() => {
+        const d = geo.house.filter((e) => focus.includes(e.prov)).map((e) => e.d).join('');
+        return (
+          <g pointerEvents="none" className="focus-ring">
+            <path d={d} fill="none" stroke="#120E0A" strokeOpacity={0.8} strokeWidth={10} strokeLinecap="round" />
+            <path d={d} fill="none" stroke="#F3D27A" strokeWidth={5} strokeLinecap="round" />
+          </g>
+        );
+      })()}
 
       {orders.map((o, i) => {
         if (o.kind !== 'move' && o.kind !== 'support') return null;
@@ -131,7 +145,7 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince, 
       })}
 
       {c.armies.filter((a) => !a.prov.startsWith('@')).map((a) => {
-        const [x, y] = provCenter(a.prov);
+        const [x, y] = posOverride?.[a.id] ?? provCenter(a.prov);
         return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR}
           selected={selectedArmy === a.id} mark={marks[a.id]} id={a.id}
           onClick={(e) => { e.stopPropagation(); if (onArmy) onArmy(a.id); else onProvince(a.prov, { x: e.clientX, y: e.clientY }); }} />;
