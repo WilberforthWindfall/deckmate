@@ -5,7 +5,7 @@ import {
 } from '../campaign/map.ts';
 import { buildingActive, buildingOwnerOf, type Campaign, type Order, type SpecKey, type Tone } from '../campaign/engine.ts';
 import { AGENT_ABBR, BUILDING_ICON } from '../campaign/CampaignMap.tsx';
-import { BUILDINGS, type BuildingKey } from '../campaign/engine.ts';
+import { BUILDINGS, ROMAN, levelOf, type BuildingKey } from '../campaign/engine.ts';
 import { SPRITE_SIZE, hasSprite, spriteName, spriteUrl } from '../campaign/sprites.ts';
 
 // 3D view of the campaign map. Same inputs as the SVG map; the rules engine is untouched.
@@ -21,7 +21,7 @@ export interface MapView {
   focus?: HexKey[];
   posOverride?: Record<string, [number, number]>;
   moving?: Set<string>;
-  construction?: { hex: HexKey; b: BuildingKey; house: House }[];
+  construction?: { hex: HexKey; b: BuildingKey; house: House; up?: number }[];
 }
 export interface MapHandlers {
   onHex: (k: HexKey) => void;
@@ -342,7 +342,7 @@ export class Campaign3D {
   }
 
   private updateDyn(v: MapView) {
-    const key = JSON.stringify([v.c.hexOwner, v.c.owner, v.c.buildings, v.c.buildingOwner, v.construction, Object.keys(SPRITE_SIZE).length, v.selectedHex, v.reach, v.plan, v.orders, v.labels, v.focus,
+    const key = JSON.stringify([v.c.hexOwner, v.c.owner, v.c.buildings, v.c.buildingOwner, v.c.levels, v.construction, Object.keys(SPRITE_SIZE).length, v.selectedHex, v.reach, v.plan, v.orders, v.labels, v.focus,
       v.c.battles.map((b) => [b.hex, b.from]), v.c.armies.map((a) => [a.id, a.hex]), v.c.agents.map((a) => [a.id, a.hex])]);
     if (key === this.dynKey) return;
     this.dynKey = key;
@@ -408,6 +408,11 @@ export class Campaign3D {
         sp.position.set(px, hexHeight(k) + 0.04, pz);
         if (!active) (sp.material as THREE.SpriteMaterial).color.setRGB(0.55, 0.55, 0.55);
         add(sp);
+        const lv = levelOf(v.c, k);
+        if (lv > 1) {
+          const tag = canvasSprite(30, 22, (g) => { g.fillStyle = '#E2C27F'; g.strokeStyle = '#1E1A15'; g.lineWidth = 1.5; rr(g, 2, 2, 26, 18, 5); g.fill(); g.stroke(); g.fillStyle = '#1E1A15'; g.font = '800 13px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ROMAN[lv], 15, 12); }, 0.3);
+          tag.position.set(px - 0.35, hexHeight(k) + 1.0, pz); add(tag);
+        }
         continue;
       }
       const sp = canvasSprite(30, 30, (g) => {
@@ -425,6 +430,10 @@ export class Campaign3D {
       const g = new THREE.Group(); g.userData.pulse = true; g.position.set(px, y0, pz);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.03, 6, 28), new THREE.MeshBasicMaterial({ color: new THREE.Color(HOUSES[site.house].color), transparent: true }));
       ring.rotation.x = Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+      if (site.up) {
+        const tag = canvasSprite(40, 22, (cx) => { cx.fillStyle = '#F3EAD4'; cx.strokeStyle = HOUSES[site.house].color; cx.lineWidth = 2.5; rr(cx, 2, 2, 36, 18, 9); cx.fill(); cx.stroke(); cx.fillStyle = '#2A2118'; cx.font = '800 12px Figtree, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(`↑${ROMAN[site.up!]}`, 20, 12); }, 0.38);
+        tag.position.y = 1.45; g.add(tag); add(g); continue;
+      }
       if (hasSprite(spriteName.construction())) { const sp = this.painted(spriteName.construction(), 1.15); g.add(sp); }
       else {
         const wood = new THREE.MeshStandardMaterial({ color: 0x8c6a3a, roughness: 0.9 });

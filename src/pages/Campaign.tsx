@@ -7,14 +7,15 @@ import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
 import Overview from '../campaign/Overview.tsx';
 import { CityPanel, HexPanel, describe, specText } from '../campaign/Panels.tsx';
+import BuildBar, { type BuildPick } from '../campaign/BuildBar.tsx';
 import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
 import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
-  AGENT_RANGE, BUILDINGS, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
+  AGENT_RANGE, BUILDINGS, ORDERS_PER_ROUND, levelOf, orderCount, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
   movePreview, newCampaign, orderCost, orderProblem, pathCost, rangeOf, score, sealOrders,
-  type BuildingKey, type Campaign as CampaignState, type Order, type Tone,
+  type Branch, type Campaign as CampaignState, type Order, type Tone,
 } from '../campaign/engine.ts';
 import { CITY_HEX, HEX_ADJ, HOUSES, LAND, PROVINCES, hexCenter, hexLand, hexName, pathTo, reachable, type HexKey, type House } from '../campaign/map.ts';
 
@@ -45,7 +46,10 @@ export default function Campaign() {
   const [unit, setUnit] = useState<Unit | null>(null);
   const [path, setPath] = useState<HexKey[]>([]);
   const [mode, setMode] = useState<'move' | 'support'>('move');
-  const [buildMode, setBuildMode] = useState<BuildingKey | null>(null);
+  const [buildMode, setBuildMode] = useState<BuildPick | null>(null);
+  /** Build bar: open tab and the field picked first (cards then show what fits there). */
+  const [barTab, setBarTab] = useState<Branch | null>(null);
+  const [site, setSite] = useState<HexKey | null>(null);
   const [panel, setPanel] = useState<Panel>({ kind: 'overview' });
   const [msg, setMsg] = useState('');
   const [battle, setBattle] = useState<{ id: string; st: GameState } | null>(null);
@@ -67,9 +71,9 @@ export default function Campaign() {
   const shownRound = useRef(0);
 
   useEffect(() => save(c), [c]);
-  const clearSel = () => { setUnit(null); setPath([]); setMode('move'); setBuildMode(null); };
+  const clearSel = () => { setUnit(null); setPath([]); setMode('move'); setBuildMode(null); setSite(null); };
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUnit(null); setPath([]); setBuildMode(null); setPanel({ kind: 'overview' }); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUnit(null); setPath([]); setBuildMode(null); setSite(null); setPanel({ kind: 'overview' }); } };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, []);
@@ -133,7 +137,7 @@ export default function Campaign() {
   const selOrder = unit ? draft.findIndex((o) => ('army' in o && o.army === unit.id) || (o.kind === 'agent' && o.agent === unit.id)) : -1;
   const engaged = engagedIds(c);
   const mineSel = !!(giving && unit && (selArmy?.house === h || selAgent?.house === h) && !(selArmy && engaged.has(selArmy.id)));
-  const planning = mineSel && selOrder < 0 && draft.length < ORDERS_PER_ROUND;
+  const planning = mineSel && selOrder < 0 && orderCount(draft) < ORDERS_PER_ROUND;
   const budget = selArmy ? rangeOf(selArmy) : selAgent ? AGENT_RANGE : 0;
   const left = budget - pathCost(path);
   const enemyHexes = new Set(c.armies.filter((a) => a.house !== h).map((a) => a.hex));
@@ -145,8 +149,17 @@ export default function Campaign() {
   const reach: Record<HexKey, number> | undefined = reachInfo ? reachInfo.cost : planning && mode === 'support' && selPos ? Object.fromEntries(HEX_ADJ[selPos].map((k) => [k, 1])) : undefined;
   // build site picking
   const siteReach: Record<HexKey, number> | undefined = buildMode && giving
-    ? Object.fromEntries(Object.keys(c.hexOwner).filter((k) => !why({ kind: 'build', hex: k, b: buildMode })).map((k) => [k, 0]))
+    ? Object.fromEntries(Object.keys(c.hexOwner).filter((k) => !why(siteOrder(buildMode, k))).map((k) => [k, 0]))
     : undefined;
+  function siteOrder(p: BuildPick, k: HexKey): Order {
+    return p.kind === 'build' ? { kind: 'build', hex: k, b: p.b } : c.buildings[k] === p.b ? { kind: 'upgrade', hex: k } : { kind: 'build', hex: '', b: p.b };
+  }
+  function openBuild(at: HexKey | null) {
+    clearSel();
+    setSite(at);
+    const b = at ? c.buildings[at] : undefined;
+    setBarTab(b ? BUILDINGS[b].branch : at && CITY_HEX[at] ? 'verteidigung' : barTab ?? 'wirtschaft');
+  }
 
   function selectArmy(id: string) {
     const a = armyById(c, id);
@@ -175,7 +188,7 @@ export default function Campaign() {
   }
   function onHex(k: HexKey) {
     if (buildMode) {
-      if (siteReach && k in siteReach) { add({ kind: 'build', hex: k, b: buildMode }); return; }
+      if (siteReach && k in siteReach) { add(siteOrder(buildMode, k)); return; }
       setBuildMode(null);
     }
     if (planning && mode === 'support' && selArmy) {
@@ -191,6 +204,7 @@ export default function Campaign() {
     clearSel();
     setSelHex(k);
     setPanel(CITY_HEX[k] ? { kind: 'city', prov: CITY_HEX[k] } : { kind: 'hex', hex: k });
+    if (barTab && giving && (c.hexOwner[k] === h)) setSite(k);
   }
 
   function seal() {
@@ -254,8 +268,12 @@ export default function Campaign() {
     const hexOwner = { ...rv.hexOwner };
     if (show === 'walk') for (const a of rv.armies) for (const k of (rv.walk[a.id] ?? []).slice(1, at + 1)) hexOwner[k] = a.house;
     const buildings = { ...c.buildings };
-    for (const x of ['R', 'K'] as House[]) for (const o of rv.orders[x]) if (o.kind === 'build') delete buildings[o.hex];
-    mapC = { ...c, round: rv.round, armies: rv.armies, agents: rv.agents, traders: rv.traders, hexOwner, owner: rv.owner, gold: rv.gold, battles: [], buildings };
+    const levels = { ...(c.levels ?? {}) };
+    for (const x of ['R', 'K'] as House[]) for (const o of rv.orders[x]) {
+      if (o.kind === 'build') delete buildings[o.hex];
+      if (o.kind === 'upgrade') levels[o.hex] = Math.max(1, (levels[o.hex] ?? 1) - 1);
+    }
+    mapC = { ...c, round: rv.round, armies: rv.armies, agents: rv.agents, traders: rv.traders, hexOwner, owner: rv.owner, gold: rv.gold, battles: [], buildings, levels };
     if (show === 'walk') {
       for (const [id, w] of Object.entries(rv.walk)) posOverride[id] = hexCenter(w[at]);
       // those stopped in a conflict at this step march halfway towards the field and come back
@@ -274,7 +292,8 @@ export default function Campaign() {
   }
   // buildings ordered this round show up as construction sites
   const construction = (walking && rv ? (['R', 'K'] as House[]).flatMap((x) => rv.orders[x].map((o) => ({ o, x }))) : giving ? draft.map((o) => ({ o, x: h })) : [])
-    .flatMap(({ o, x }) => (o.kind === 'build' ? [{ hex: o.hex, b: o.b, house: x }] : []));
+    .flatMap(({ o, x }) => (o.kind === 'build' ? [{ hex: o.hex, b: o.b, house: x }]
+      : o.kind === 'upgrade' && c.buildings[o.hex] ? [{ hex: o.hex, b: c.buildings[o.hex], house: x, up: walking ? levelOf(mapC, o.hex) + 1 : levelOf(c, o.hex) + 1 }] : []));
   const plan = planning && selPos && mode === 'move' ? { from: selPos, path, house: h } : null;
   const mapProps = {
     c: mapC, selectedHex: selHex, selectedUnit: unit?.id ?? null, reach: siteReach ?? reach, plan, orders: mapOrders,
@@ -318,7 +337,7 @@ export default function Campaign() {
               <div style={{ fontFamily: 'var(--display)', fontSize: 17, color: 'var(--brass)' }}>Runde {mapC.round} von {c.maxRounds}</div>
               <div className="rule" style={{ fontSize: 12 }}>{phaseText}</div>
             </div>
-            {giving && <Stat label="Befehle" value={`${draft.length}/${ORDERS_PER_ROUND}`} />}
+            {giving && <Stat label="Befehle" value={`${orderCount(draft)}/${ORDERS_PER_ROUND}`} />}
           </div>
         </div>
 
@@ -345,8 +364,17 @@ export default function Campaign() {
 
           {buildMode && giving && (
             <div role="status" className="card" style={{ position: 'absolute', left: LEFT + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 560, zIndex: 5, display: 'flex', gap: 10, alignItems: 'center', background: 'var(--hull)', borderColor: 'var(--brass)' }}>
-              <span style={{ flex: 1 }}>Wo soll {BUILDINGS[buildMode].art === 'einen' ? 'der' : 'die'} <b>{BUILDINGS[buildMode].n}</b> stehen? Tippe ein leuchtendes Feld im Umland an.</span>
+              <span style={{ flex: 1 }}>{buildMode.kind === 'build'
+                ? <>Wo soll {BUILDINGS[buildMode.b].art === 'einen' ? 'der' : 'die'} <b>{BUILDINGS[buildMode.b].n}</b> stehen? Tippe ein leuchtendes Feld an.</>
+                : <>Welche <b>{BUILDINGS[buildMode.b].n}</b> soll ausgebaut werden? Tippe ein leuchtendes Feld an.</>}</span>
               <button type="button" className="ghost" onClick={() => setBuildMode(null)}>Abbrechen</button>
+            </div>
+          )}
+
+          {giving && !buildMode && !(mineSel && (selArmy || selAgent)) && (
+            <div style={{ position: 'absolute', left: LEFT, right: 0, bottom: 0 }}>
+              <BuildBar c={c} house={h} draft={draft} add={(o) => { if (add(o)) setSite(null); }} remove={removeOrder} site={site} tab={barTab}
+                setTab={(t) => { setBarTab(t); if (!t) setSite(null); }} onPick={(p) => { clearSel(); setBuildMode(p); }} onClearSite={() => setSite(null)} />
             </div>
           )}
 
@@ -403,10 +431,10 @@ export default function Campaign() {
         <div className="stack" style={LEFT_PANEL}>
           {panel.kind === 'city'
             ? <CityPanel c={c} prov={panel.prov} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
-                onPickSite={(b) => { clearSel(); setBuildMode(b); }} />
+                onBuild={openBuild} />
             : panel.kind === 'hex'
               ? <HexPanel c={c} hex={panel.hex} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
-                  onCity={(p) => setPanel({ kind: 'city', prov: p })} />
+                  onCity={(p) => setPanel({ kind: 'city', prov: p })} onBuild={openBuild} />
               : <Overview key={h} c={mapC} house={h} giving={giving} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
                   onCity={(p) => { setPanel({ kind: 'city', prov: p }); }} />}
         </div>
