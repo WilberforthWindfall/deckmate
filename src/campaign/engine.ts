@@ -69,7 +69,31 @@ export const MAX_AGENTS = 4;
 export const UMLAND = 2;
 export const TRADER_SPEED = 2;
 
-export interface CArmy { id: string; house: House; hex: HexKey; size: number; spec: Spec }
+/** `xp`: battles survived and conflicts won (see RANKS). */
+export interface CArmy { id: string; house: House; hex: HexKey; size: number; spec: Spec; xp?: number }
+
+// ---------- experience ----------
+export const RANKS = [
+  { n: 'Grün', xp: 0, bonus: 0 },
+  { n: 'Erprobt', xp: 2, bonus: 0.1 },
+  { n: 'Veteran', xp: 4, bonus: 0.2 },
+] as const;
+export const rankOf = (a: { xp?: number }) => ((a.xp ?? 0) >= RANKS[2].xp ? 2 : (a.xp ?? 0) >= RANKS[1].xp ? 1 : 0);
+/** Mixing armies or adding recruits waters the experience down (weighted by size). */
+const mixXp = (xa: number | undefined, na: number, xb: number | undefined, nb: number) => Math.floor(((xa ?? 0) * na + (xb ?? 0) * nb) / Math.max(1, na + nb));
+
+// ---------- secret goals ----------
+export type Goal =
+  | { kind: 'hold'; provs: string[] }
+  | { kind: 'markets'; n: number }
+  | { kind: 'levels'; n: number }
+  | { kind: 'agents'; n: number }
+  | { kind: 'cities'; n: number }
+  | { kind: 'veteran' };
+/** Points for a secret goal met at the end of the campaign. */
+export const GOAL_POINTS = 4;
+export interface CampaignOptions { maxRounds: number; goals: boolean; experience: boolean }
+export const DEFAULT_OPTIONS: CampaignOptions = { maxRounds: 10, goals: true, experience: true };
 /** A specialist travelling without an army. */
 export interface Agent { id: string; house: House; spec: SpecKey; hex: HexKey }
 /** A trader walking from a market to an own city, bringing gold on arrival. */
@@ -113,6 +137,8 @@ export interface ConflictSide {
   sup: { hex: HexKey; size: number; add: number }[];
   /** Terrain and wall factors, 1 if none (only defenders get them). */
   terrain: number; wall: number; total: number;
+  /** Experience factor (1 if none). */
+  xp?: number;
 }
 export type Conflict =
   | { kind: 'meet'; hex: HexKey; step?: number; swap?: boolean; R: ConflictSide; K: ConflictSide; winner: House | null; battle?: { attacker: House; coin: boolean }; retreat?: HexKey | null }
@@ -160,6 +186,10 @@ export interface Campaign {
   winner: House | null;
   winReason: string | null;
   nextId: number;
+  /** Chosen in the start dialog; missing in older saves (then experience and goals are off). */
+  opts?: CampaignOptions;
+  /** Secret goal of each house, only shown to its owner until the end. */
+  goals?: Record<House, Goal>;
 }
 
 export const OTHER: Record<House, House> = { R: 'K', K: 'R' };
@@ -240,10 +270,20 @@ function wallFactor(c: Campaign, hex: HexKey, house: House) {
   if (c.buildings[hex] !== 'mauer' || buildingOwnerOf(c, hex) !== house || !buildingActive(c, hex)) return 1;
   return WALL[levelOf(c, hex)] + c.agents.filter((a) => a.hex === hex && a.house === house).reduce((n, a) => n + (agentBonus(c, a)?.wall ?? 0), 0);
 }
+export const xpOn = (c: Campaign) => !!c.opts?.experience;
+/** Strength factor from experience (1 if experience is off). */
+export const xpFactor = (c: Campaign, a: CArmy) => (xpOn(c) ? 1 + RANKS[rankOf(a)].bonus : 1);
 export function strength(c: Campaign, a: CArmy, hex: HexKey, supports: CArmy[], defending: boolean) {
   const base = a.size + supports.reduce((s, x) => s + x.size / 2, 0);
-  const f = defending ? LAND[hexLand(hex)].defense * wallFactor(c, hex, a.house) : 1;
+  const f = (defending ? LAND[hexLand(hex)].defense * wallFactor(c, hex, a.house) : 1) * xpFactor(c, a);
   return Math.round(base * f * 10) / 10;
+}
+/** One more point of experience; returns a log line when the army reaches a new rank. */
+function gainXp(c: Campaign, a: CArmy, n: number, log: string[]) {
+  if (!xpOn(c) || a.size <= 0) return;
+  const before = rankOf(a);
+  a.xp = (a.xp ?? 0) + n;
+  if (rankOf(a) > before) log.push(`Das Heer von ${hn(a.house)} bei ${hexName(a.hex)} ist jetzt ${RANKS[rankOf(a)].n} (+${Math.round(RANKS[rankOf(a)].bonus * 100)} % Stärke).`);
 }
 function sideOf(c: Campaign, a: CArmy, from: HexKey, hex: HexKey, supports: CArmy[], defending: boolean): ConflictSide {
   return {
@@ -251,6 +291,7 @@ function sideOf(c: Campaign, a: CArmy, from: HexKey, hex: HexKey, supports: CArm
     sup: supports.map((x) => ({ hex: x.hex, size: x.size, add: x.size / 2 })),
     terrain: defending ? LAND[hexLand(hex)].defense : 1,
     wall: defending ? wallFactor(c, hex, a.house) : 1,
+    xp: xpFactor(c, a),
     total: strength(c, a, hex, supports, defending),
   };
 }
@@ -268,6 +309,46 @@ export function score(c: Campaign, h: House) {
   return provs.length + provs.filter((p) => p.city).length * 2;
 }
 
+export function goalText(g: Goal): string {
+  switch (g.kind) {
+    case 'hold': return `Halte am Ende ${g.provs.map((p) => PROV[p].n).join(' und ')}.`;
+    case 'markets': return `Besitze am Ende ${g.n} aktive Märkte.`;
+    case 'levels': return `Besitze am Ende ${g.n} Gebäude auf Stufe II oder höher.`;
+    case 'agents': return `Habe am Ende ${g.n} Einzelgänger unterwegs.`;
+    case 'cities': return `Halte am Ende ${g.n} Städte.`;
+    case 'veteran': return 'Führe am Ende ein Veteranen-Heer.';
+  }
+}
+/** Progress towards a goal: [have, need]. */
+export function goalProgress(c: Campaign, h: House, g: Goal): [number, number] {
+  const mine = (k: HexKey) => buildingOwnerOf(c, k) === h && buildingActive(c, k);
+  switch (g.kind) {
+    case 'hold': return [g.provs.filter((p) => c.owner[p] === h).length, g.provs.length];
+    case 'markets': return [Object.keys(c.buildings).filter((k) => c.buildings[k] === 'markt' && mine(k)).length, g.n];
+    case 'levels': return [Object.keys(c.buildings).filter((k) => mine(k) && levelOf(c, k) >= 2).length, g.n];
+    case 'agents': return [c.agents.filter((a) => a.house === h).length, g.n];
+    case 'cities': return [PROVINCES.filter((p) => p.city && c.owner[p.id] === h).length, g.n];
+    case 'veteran': return [c.armies.some((a) => a.house === h && rankOf(a) >= 2) ? 1 : 0, 1];
+  }
+}
+export const goalMet = (c: Campaign, h: House) => { const g = c.goals?.[h]; if (!g) return false; const [a, b] = goalProgress(c, h, g); return a >= b; };
+/** Final points: provinces, cities and a met secret goal. */
+export const finalScore = (c: Campaign, h: House) => score(c, h) + (goalMet(c, h) ? GOAL_POINTS : 0);
+
+function drawGoals(rng: Rng, experience: boolean): Record<House, Goal> {
+  const pick = <T>(xs: T[]) => xs[Math.floor(rng() * xs.length)];
+  const holdFor = (h: House): Goal => {
+    const pool = PROVINCES.filter((p) => p.start !== h && p.capital !== OTHER[h]).map((p) => p.id);
+    const a = pick(pool), b = pick(pool.filter((x) => x !== a));
+    return { kind: 'hold', provs: [a, b] };
+  };
+  const make = (h: House, kind: Goal['kind']): Goal =>
+    kind === 'hold' ? holdFor(h) : kind === 'markets' ? { kind, n: 2 } : kind === 'levels' ? { kind, n: 2 } : kind === 'agents' ? { kind, n: 3 } : kind === 'cities' ? { kind, n: 4 } : { kind: 'veteran' };
+  const kinds: Goal['kind'][] = ['hold', 'hold', 'markets', 'levels', 'agents', 'cities', ...(experience ? ['veteran' as const] : [])];
+  const kr = pick(kinds), kk = pick(kinds.filter((k) => k !== kr || k === 'hold'));
+  return { R: make('R', kr), K: make('K', kk) };
+}
+
 /** Province owners from the hexes: city provinces by their city hex, the others by the majority of fields. */
 export function deriveOwners(c: Campaign) {
   for (const p of PROVINCES) {
@@ -282,7 +363,8 @@ export function deriveOwners(c: Campaign) {
 
 // ---------- setup ----------
 
-export function newCampaign(): Campaign {
+export function newCampaign(options: Partial<CampaignOptions> = {}, rng: Rng = Math.random): Campaign {
+  const opts: CampaignOptions = { ...DEFAULT_OPTIONS, ...options };
   const hexOwner: Record<HexKey, House | null> = Object.fromEntries(Object.keys(HEX).map((k) => [k, PROV[HEX[k].prov!].start ?? null]));
   const at = (prov: string) => cityHex(prov);
   const armies: CArmy[] = [
@@ -299,10 +381,11 @@ export function newCampaign(): Campaign {
     if (k) { buildings[k] = 'kapelle'; buildingOwner[k] = PROV[cap].capital!; }
   }
   const c: Campaign = {
-    v: 2, round: 1, maxRounds: 10, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner, levels: {}, research: { R: {}, K: {} },
+    v: 2, round: 1, maxRounds: opts.maxRounds, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner, levels: {}, research: { R: {}, K: {} },
     gold: { R: 4, K: 4 }, armies, agents: [], traders: [],
     orders: { R: [], K: [] }, sealed: { R: false, K: false }, battles: [],
     report: ['Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
+    opts, goals: opts.goals ? drawGoals(rng, opts.experience) : undefined,
   };
   deriveOwners(c);
   return c;
@@ -480,6 +563,7 @@ function placeArmy(c: Campaign, a: CArmy, hex: HexKey, log: string[]) {
   c.hexOwner[hex] = a.house;
   sweep(c, a, log);
   if (own) {
+    own.xp = mixXp(own.xp, own.size, a.xp, a.size);
     own.size = Math.min(MAX_ARMY, own.size + a.size);
     for (const k of SPECS) own.spec[k] = Math.min(SPEC_MAX[k], own.spec[k] + a.spec[k]);
     c.armies = c.armies.filter((x) => x.id !== a.id);
@@ -586,6 +670,7 @@ function resolve(c: Campaign, rng: Rng): Campaign {
     r.done = k.done = true;
     if (W) {
       const L = W === r ? k : r;
+      gainXp(c, W.a, 1, log);
       if (swap) {
         const lHex = L.a.hex, wHex = W.a.hex;
         conf.hex = lHex;
@@ -626,10 +711,12 @@ function resolve(c: Campaign, rng: Rng): Campaign {
       log.push(`${hn(m.h)} überrennt ${hexName(X)} (${sAtt.total} zu ${sDef.total}).`);
       conf.defLost = lose(holder, 0.5); conf.attLost = lose(m.a, 0.2);
       conf.retreat = retreatOrDie(c, holder, X, [m.a.hex], log);
+      gainXp(c, m.a, 1, log);
       if (m.a.size > 0) stepTo(m, X); else c.armies = c.armies.filter((x) => x !== m.a);
     } else if (conf.outcome === 'repelled') {
       log.push(`${hn(holder.house)} wehrt den Angriff bei ${hexName(X)} klar ab (${sDef.total} zu ${sAtt.total}).`);
       conf.attLost = lose(m.a, 0.3);
+      gainXp(c, holder, 1, log);
       if (m.a.size <= 0) c.armies = c.armies.filter((x) => x !== m.a);
     } else {
       battles.push({
@@ -744,7 +831,7 @@ function resolve(c: Campaign, rng: Rng): Campaign {
     if (here && here.house !== h) { log.push(`${hn(h)} kann in ${PROV[o.prov].n} nicht rekrutieren, dort steht ein fremdes Heer.`); continue; }
     c.gold[h] -= COST.recruit;
     const n = recruitSize(c, o.prov, h);
-    if (here) { here.size = Math.min(MAX_ARMY, here.size + n); log.push(`${hn(h)} rekrutiert ${n} Figuren in ${PROV[o.prov].n}.`); }
+    if (here) { here.xp = mixXp(here.xp, here.size, 0, n); here.size = Math.min(MAX_ARMY, here.size + n); log.push(`${hn(h)} rekrutiert ${n} Figuren in ${PROV[o.prov].n}.`); }
     else { c.armies.push({ id: `a${c.nextId++}`, house: h, hex: ch, size: n, spec: noSpec() }); log.push(`${hn(h)} stellt in ${PROV[o.prov].n} ein neues Heer mit ${n} Figuren auf.`); }
   }
 
@@ -784,6 +871,9 @@ export function applyBattle(prev: Campaign, id: string, out: BattleOutcome): Cam
   c.battles = c.battles.filter((x) => x.id !== id);
   log.push(`${b.field ? 'Feldschlacht' : 'Schlacht'} bei ${hexName(b.hex)} ${out.how}: ${out.attackerWon ? `${hn(att.house)} siegt` : b.field ? `${hn(def.house)} siegt` : `${hn(def.house)} hält stand`}.`);
   const gone = (a: CArmy) => { c.armies = c.armies.filter((x) => x.id !== a.id); };
+  const winnerArmy = out.attackerWon ? att : def;
+  gainXp(c, att, 1 + (winnerArmy === att ? 1 : 0), log);
+  gainXp(c, def, 1 + (winnerArmy === def ? 1 : 0), log);
   const back = (loser: CArmy, to: HexKey) => {
     if (loser.size <= 0) { gone(loser); return; }
     if (to === b.hex || c.armies.some((x) => x.hex === to && x.house !== loser.house)) { retreatOrDie(c, loser, b.hex, [b.from], log); return; }
@@ -827,6 +917,9 @@ export function battleGame(c: Campaign, id: string, rng: Rng): GameState {
     defender: { house: hn(def.house), size: Math.min(12, def.size), spec: noSpec() },
   }, rng);
   const keys = Object.keys(CARDS) as CardKey[];
+  const vet = (a: CArmy) => (xpOn(c) && rankOf(a) >= 2 ? 1 : 0);
+  for (let i = 0; i < vet(att); i++) st.hands.O.push(keys[Math.floor(rng() * keys.length)]);
+  for (let i = 0; i < vet(def); i++) st.hands.M.push(keys[Math.floor(rng() * keys.length)]);
   for (let i = 0; i < b.attCards; i++) st.hands.O.push(keys[Math.floor(rng() * keys.length)]);
   for (let i = 0; i < b.defCards; i++) st.hands.M.push(keys[Math.floor(rng() * keys.length)]);
   return st;
@@ -867,7 +960,8 @@ function endRound(c: Campaign): Campaign {
     }
   }
   if (c.phase !== 'over' && c.round >= c.maxRounds) {
-    const r = score(c, 'R'), k = score(c, 'K');
+    const r = finalScore(c, 'R'), k = finalScore(c, 'K');
+    if (c.goals) for (const h of ['R', 'K'] as House[]) log.push(`Geheimes Ziel von ${hn(h)}: ${goalText(c.goals[h])} ${goalMet(c, h) ? `Erfüllt, +${GOAL_POINTS} Punkte.` : 'Nicht erfüllt.'}`);
     c.phase = 'over';
     c.winner = r === k ? null : r > k ? 'R' : 'K';
     c.winReason = r === k ? `Nach ${c.maxRounds} Runden steht es unentschieden (${r} zu ${k}).` : `Nach ${c.maxRounds} Runden: ${hn(c.winner!)} führt mit ${Math.max(r, k)} zu ${Math.min(r, k)} Punkten.`;

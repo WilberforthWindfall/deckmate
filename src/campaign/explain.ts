@@ -28,6 +28,7 @@ export function formula(s: ConflictSide, hex: HexKey): string {
   for (const x of s.sup) parts.push(`+ ${num(x.add)} Unterstützung von ${hexName(x.hex)}`);
   if (s.terrain !== 1) parts.push(`× ${num(s.terrain)} ${LAND[hexLand(hex)].n}`);
   if (s.wall !== 1) parts.push(`× ${num(s.wall)} Stadtmauer`);
+  if (s.xp && s.xp !== 1) parts.push(`× ${num(s.xp)} Erfahrung`);
   return parts.join(' ');
 }
 

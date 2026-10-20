@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  BUILDINGS, ROMAN, SPEC_NAME, agentBonus, buildingsNear, engagedIds, income, rangeOf, recruitSize, specSum, strength,
+  BUILDINGS, GOAL_POINTS, RANKS, ROMAN, SPEC_NAME, agentBonus, goalProgress, goalText, rankOf, xpOn, buildingsNear, engagedIds, income, rangeOf, recruitSize, specSum, strength,
   type CArmy, type Campaign, type Order, type SpecKey,
 } from './engine.ts';
 import { CITY_HEX, HOUSES, LAND, PROV, PROVINCES, cityHex, hexLand, hexName, type House } from './map.ts';
@@ -51,6 +51,18 @@ export default function Overview({ c, house, giving, draft, onArmy, onAgent, onC
         <Badge>{fields} Felder</Badge>
         <Badge>{cities.length} Städte</Badge>
       </div>
+      {c.goals && (
+        own || c.phase === 'over' ? (() => {
+          const g = c.goals[t], [have, need] = goalProgress(c, t, g);
+          return (
+            <div className="card stack" style={{ gap: 4, padding: '8px 10px', borderColor: 'var(--brass)', borderStyle: 'dashed' }}>
+              <span className="row" style={{ justifyContent: 'space-between' }}><span className="lbl">Geheimes Ziel</span><Badge tone={have >= need ? 'good' : 'gold'}>{have}/{need}</Badge></span>
+              <span style={{ fontSize: 13 }}>{goalText(g)}</span>
+              <span className="rule" style={{ fontSize: 11.5 }}>Zählt am Ende +{GOAL_POINTS} Punkte. {HOUSES[t === 'R' ? 'K' : 'R'].n} sieht es nicht.</span>
+            </div>
+          );
+        })() : <span className="rule" style={{ fontSize: 12 }}>Geheimes Ziel: verdeckt</span>
+      )}
 
       <section className="stack" style={{ gap: 6 }}>
         <span className="lbl">Heere</span>
@@ -115,6 +127,7 @@ function ArmyRow({ c, a, own, hidden, engaged, order, open, setOpen, onClick }: 
           <span>{hexName(a.hex)}</span>
           <span className="row" style={{ gap: 4 }}>
             <Badge title="Bewegungspunkte pro Runde; Gebirge und Sumpf kosten 2">Reichweite {rangeOf(a)}</Badge>
+            {xpOn(c) && rankOf(a) > 0 && <Badge tone="gold" title={`Erfahrung ${a.xp ?? 0}: +${Math.round(RANKS[rankOf(a)].bonus * 100)} % Stärke${rankOf(a) >= 2 ? ', eine Extrakarte auf dem Brett' : ''}`}>{'★'.repeat(rankOf(a))} {RANKS[rankOf(a)].n}</Badge>}
             {n > 0 ? <Badge tone="gold">{n} Spezialist{n === 1 ? '' : 'en'}</Badge> : <Badge tone="bad" title="Ohne Spezialisten fehlt Disziplin: 1 Bewegungspunkt weniger">ohne Disziplin</Badge>}
             {engaged && <Badge tone="bad">wartet auf Schlacht</Badge>}
             {fever && <Badge tone="bad" title="Im Sumpf verliert das Heer am Rundenende 1 Figur">Fieber −1</Badge>}
@@ -127,7 +140,7 @@ function ArmyRow({ c, a, own, hidden, engaged, order, open, setOpen, onClick }: 
       {open && (
         <div role="tooltip" className="card stack" style={{ marginTop: 4, gap: 3, padding: '8px 10px', background: 'var(--hull)', borderColor: 'var(--brass)', fontSize: 13 }}>
           <b>Heer bei {hexName(a.hex)}</b>
-          <span>{a.size} Figuren</span>
+          <span>{a.size} Figuren{xpOn(c) ? ` · ${RANKS[rankOf(a)].n} (Erfahrung ${a.xp ?? 0}${rankOf(a) < 2 ? `, nächster Rang ab ${RANKS[rankOf(a) + 1].xp}` : ''})` : ''}</span>
           {hidden
             ? <span className="rule">{n ? `${n} Spezialisten, Art unbekannt` : 'Keine Spezialisten erkennbar'}</span>
             : SPECS.filter((k) => a.spec[k]).length

@@ -3,7 +3,7 @@ import {
   CITY_HEX, HEX, HEXES, HEX_R, HOUSES, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexCenter, hexPoints, hexSides, hk, inGrid, provCenter,
   type HexKey, type House,
 } from './map.ts';
-import { BUILDINGS, ROMAN, buildingActive, buildingOwnerOf, levelOf, type BuildingKey, type Campaign, type Order, type SpecKey, type Tone } from './engine.ts';
+import { BUILDINGS, ROMAN, buildingActive, buildingOwnerOf, levelOf, rankOf, xpOn, type BuildingKey, type Campaign, type Order, type SpecKey, type Tone } from './engine.ts';
 import { hasSprite, spriteBox, spriteName, spriteUrl } from './sprites.ts';
 
 export interface MapProps {
@@ -284,7 +284,7 @@ export default function CampaignMap(p: MapProps) {
       {c.armies.map((a) => {
         const [x, y] = unitPos(a.id, a.hex);
         return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR}
-          selected={selectedUnit === a.id} mark={marks[a.id]} id={a.id} ms={stepMs} moving={!!moving?.has(a.id)}
+          selected={selectedUnit === a.id} mark={marks[a.id]} id={a.id} ms={stepMs} moving={!!moving?.has(a.id)} rank={xpOn(c) ? rankOf(a) : 0}
           onClick={(e) => { e.stopPropagation(); if (onArmy) onArmy(a.id); else onHex(a.hex); }} />;
       })}
       {c.battles.map((b) => {
@@ -322,9 +322,15 @@ function Dust() {
   );
 }
 
-function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClick }: {
-  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; mark?: Mark; id?: string; ms: number; moving?: boolean; onClick?: (e: RMouseEvent) => void;
+function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, rank = 0, onClick }: {
+  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; mark?: Mark; id?: string; ms: number; moving?: boolean; rank?: number; onClick?: (e: RMouseEvent) => void;
 }) {
+  const chevrons = (dx: number, dy: number) => rank > 0 && (
+    <g transform={`translate(${dx},${dy})`} aria-label={rank >= 2 ? 'Veteran' : 'Erprobt'}>
+      {Array.from({ length: rank }, (_, i) => <path key={i} d={`M-6,${i * 5} L0,${i * 5 - 4} L6,${i * 5}`} fill="none" stroke="#1E1A15" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />)}
+      {Array.from({ length: rank }, (_, i) => <path key={`g${i}`} d={`M-6,${i * 5} L0,${i * 5 - 4} L6,${i * 5}`} fill="none" stroke="#E2C27F" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />)}
+    </g>
+  );
   const name = spriteName.army(house, !!moving);
   const painted = hasSprite(name);
   const markIcon = mark && (
@@ -350,6 +356,7 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClic
           <rect x={-15} y={-8} width={30} height={16} rx={8} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={1.5} />
           <text y={4.5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={800} fontSize={12} fill="#FFF8F2">{size}</text>
         </g>
+        {chevrons(-26, 8)}
         {spec > 0 && <g transform="translate(-15,-15)"><circle r={7} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
         {markIcon}
       </g>
@@ -366,6 +373,7 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClic
         <text x={6} y={5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={15} fill="#FFF8F2">{size}</text>
       </g>
       {markIcon}
+      {chevrons(0, -24)}
       {spec > 0 && <g transform="translate(20,-14)"><circle r={8} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
     </g>
   );
