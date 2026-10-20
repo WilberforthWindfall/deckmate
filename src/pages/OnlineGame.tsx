@@ -71,7 +71,7 @@ export default function OnlineGame() {
       onAction={(a) => sendAction(user, id, a)}
       header={
         <div className="stack" style={{ gap: 10 }}>
-          <div className="row" style={{ justifyContent: 'space-between' }}><Link to="/">← Zur Lobby</Link><span className="rule">{game.name}</span></div>
+          <div className="row" style={{ justifyContent: 'space-between' }}>{game.campaign ? <Link to={`/kampagne/${game.campaign.id}`}>← Zur Kampagne</Link> : <Link to="/">← Zur Lobby</Link>}<span className="rule">{game.name}</span></div>
           <div className="players">
             {(['M', 'O'] as Side[]).map((s) => <div key={s}><i className={`dot ${s}`} /><b>{game.names[s] ?? 'frei'}</b>{s === mySide && <span className="rule">(du)</span>}</div>)}
           </div>
@@ -84,7 +84,9 @@ export default function OnlineGame() {
             : <button type="button" className="ghost" onClick={() => setConfirmResign(true)}>{mySide === 'M' ? 'Mannschaft ergibt sich' : 'Flagge streichen'}</button>}
         </div>
       ) : undefined}
-      overActions={<>
+      overActions={game.campaign ? <>
+        <Link to={`/kampagne/${game.campaign.id}`}><button type="button" className="primary">Zurück zur Kampagne – Ergebnis übernehmen</button></Link>
+      </> : <>
         <button type="button" className="primary" onClick={async () => nav(`/spiel/${await rematch(user, game)}`)}>Revanche mit getauschten Seiten</button>
         <Link to="/"><button type="button">Zur Lobby</button></Link>
       </>}

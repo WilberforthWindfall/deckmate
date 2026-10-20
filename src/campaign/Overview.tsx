@@ -14,8 +14,10 @@ const pct = (x: number) => `+${Math.round((x - 1) * 100)} %`;
 const num = (x: number) => String(Math.round(x * 10) / 10).replace('.', ',');
 const ORDER_TEXT: Record<string, string> = { move: 'zieht', support: 'unterstützt', forage: 'fouragiert', agent: 'zieht', recruit: 'rekrutiert', train: 'bildet aus', build: 'baut' };
 
-export default function Overview({ c, house, giving, draft, onArmy, onAgent, onCity }: {
+export default function Overview({ c, house, giving, viewer, draft, onArmy, onAgent, onCity }: {
   c: Campaign; house: House; giving: boolean; draft: Order[];
+  /** Whose secrets (goal) may be shown on this screen. */
+  viewer: House | null;
   onArmy: (id: string) => void; onAgent: (id: string) => void; onCity: (prov: string) => void;
 }) {
   const [tab, setTab] = useState<House | null>(null);
@@ -42,7 +44,7 @@ export default function Overview({ c, house, giving, draft, onArmy, onAgent, onC
         {(['R', 'K'] as House[]).map((x, i) => (
           <button key={x} role="tab" aria-selected={t === x} type="button" className={t === x ? 'on' : ''} onClick={() => setTab(x)}
             style={{ flex: 1, borderRadius: i ? '0 6px 6px 0' : '6px 0 0 6px', marginLeft: i ? -1 : 0, display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: HOUSES[x].color }} />{HOUSES[x].n}{x === house && giving ? ' (du)' : ''}
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: HOUSES[x].color }} />{HOUSES[x].n}{x === viewer ? ' (du)' : ''}
           </button>
         ))}
       </div>
@@ -52,7 +54,7 @@ export default function Overview({ c, house, giving, draft, onArmy, onAgent, onC
         <Badge>{cities.length} Städte</Badge>
       </div>
       {c.goals && (
-        own || c.phase === 'over' ? (() => {
+        t === viewer || c.phase === 'over' ? (() => {
           const g = c.goals[t], [have, need] = goalProgress(c, t, g);
           return (
             <div className="card stack" style={{ gap: 4, padding: '8px 10px', borderColor: 'var(--brass)', borderStyle: 'dashed' }}>
