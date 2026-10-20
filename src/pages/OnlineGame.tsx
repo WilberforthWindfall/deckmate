@@ -5,6 +5,7 @@ import { useAuth } from '../auth.tsx';
 import { joinGame, rematch, sendAction, watchGame, type GameDoc } from '../online.ts';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
 import { firestoreHint } from './Lobby.tsx';
+import { AlertToggle, useTurnAlert } from '../components/turnAlert.tsx';
 
 export default function OnlineGame() {
   const { id = '' } = useParams();
@@ -17,6 +18,14 @@ export default function OnlineGame() {
   const [confirmResign, setConfirmResign] = useState(false);
 
   useEffect(() => watchGame(id, setGame, (e) => setError(firestoreHint(e))), [id]);
+  const meSide = game && user ? (['M', 'O'] as Side[]).find((s) => game.players[s] === user.uid) ?? null : null;
+  const full = !!(game?.players.M && game?.players.O);
+  const turnNeed = !game || !meSide ? null
+    : !full ? null
+    : game.state.phase === 'over' ? 'Partie beendet'
+    : game.state.phase === 'setup' ? null
+    : game.state.turn === meSide ? 'Du bist am Zug' : null;
+  useTurnAlert(turnNeed, game?.name ?? 'Partie');
 
   if (!user) return null;
   if (error) return <Message title="Partie nicht erreichbar" text={error} />;
@@ -75,6 +84,7 @@ export default function OnlineGame() {
           <div className="players">
             {(['M', 'O'] as Side[]).map((s) => <div key={s}><i className={`dot ${s}`} /><b>{game.names[s] ?? 'frei'}</b>{s === mySide && <span className="rule">(du)</span>}</div>)}
           </div>
+          <AlertToggle />
         </div>
       }
       footer={game.state.phase === 'play' ? (
