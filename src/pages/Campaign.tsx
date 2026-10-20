@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { watchGame } from '../online.ts';
+import { AlertToggle, useTurnAlert } from '../components/turnAlert.tsx';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
 import { battleResult } from '../game/battle.ts';
@@ -152,6 +153,13 @@ export default function Campaign({ online }: { online?: OnlineSession } = {}) {
   const waitingForOther = !!online && c.phase === 'orders' && c.sealed[h];
   const giving = c.phase === 'orders' && ready && !show && !waitingForOther;
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3200); };
+  // online: tab title, chime and notification when it is this player's turn
+  const need = !online ? null
+    : revealPending && !show ? 'Runde aufgedeckt'
+    : c.phase === 'orders' && !c.sealed[h] ? `Runde ${c.round}: deine Befehle`
+    : c.phase === 'battles' ? 'Schlacht wartet'
+    : c.phase === 'over' ? 'Kampagne beendet' : null;
+  useTurnAlert(need, online ? online.name : 'Kampagne');
   /** Changes the campaign: locally right away, online as a transaction on the latest state. */
   async function apply(fn: (p: CampaignState, me: House) => CampaignState): Promise<boolean> {
     try {
@@ -613,6 +621,7 @@ export default function Campaign({ online }: { online?: OnlineSession } = {}) {
           <div className="lbl">Bericht</div>
           {walking ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-16).map((l, i) => <span key={i} className="rule">{l}</span>)}
         </div>
+        {online && <AlertToggle />}
         <span className="rule" style={{ fontSize: 12 }}>Alle Begriffe und Regeln stehen im Feldbuch hinter dem goldenen ?.</span>
         {!online && <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>}
       </aside>
