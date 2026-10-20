@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  BUILDINGS, SPEC_NAME, agentBonus, buildingsNear, engagedIds, income, rangeOf, recruitSize, specSum, strength,
+  BUILDINGS, ROMAN, SPEC_NAME, agentBonus, buildingsNear, engagedIds, income, rangeOf, recruitSize, specSum, strength,
   type CArmy, type Campaign, type Order, type SpecKey,
 } from './engine.ts';
 import { CITY_HEX, HOUSES, LAND, PROV, PROVINCES, cityHex, hexLand, hexName, type House } from './map.ts';
@@ -159,7 +159,7 @@ function CityRow({ c, prov, onClick }: { c: Campaign; prov: string; onClick: () 
       <span className="row" style={{ gap: 4 }}>
         {p.capital && <Badge tone="gold" title="Wer das Stadtfeld betritt, gewinnt die Kampagne">Hauptstadt</Badge>}
         {near.length ? near.map((x) => (
-          <Badge key={x.hex} tone={x.active ? 'plain' : 'bad'} title={`${BUILDINGS[x.b].n}${x.active ? '' : ' (ruht, feindliches Heer auf dem Feld)'}`}>{BUILDING_ICON[x.b]} {BUILDINGS[x.b].n}{x.active ? '' : ' (ruht)'}</Badge>
+          <Badge key={x.hex} tone={x.active ? 'plain' : 'bad'} title={`${BUILDINGS[x.b].n}${x.active ? '' : ' (ruht, feindliches Heer auf dem Feld)'}`}>{BUILDING_ICON[x.b]} {BUILDINGS[x.b].n}{x.level > 1 ? ` ${ROMAN[x.level]}` : ''}{x.active ? '' : ' (ruht)'}</Badge>
         )) : <span className="rule" style={{ fontSize: 12 }}>Keine Gebäude im Umland</span>}
       </span>
       <span className="row" style={{ gap: 4 }}>

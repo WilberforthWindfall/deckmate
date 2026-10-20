@@ -3,7 +3,7 @@ import {
   CITY_HEX, HEX, HEXES, HEX_R, HOUSES, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexCenter, hexPoints, hexSides, hk, inGrid, provCenter,
   type HexKey, type House,
 } from './map.ts';
-import { BUILDINGS, buildingActive, buildingOwnerOf, type BuildingKey, type Campaign, type Order, type SpecKey, type Tone } from './engine.ts';
+import { BUILDINGS, ROMAN, buildingActive, buildingOwnerOf, levelOf, type BuildingKey, type Campaign, type Order, type SpecKey, type Tone } from './engine.ts';
 import { hasSprite, spriteBox, spriteName, spriteUrl } from './sprites.ts';
 
 export interface MapProps {
@@ -32,7 +32,7 @@ export interface MapProps {
   /** Units walking right now (they march and raise dust). */
   moving?: Set<string>;
   /** Buildings being built this round (shown as construction sites). */
-  construction?: { hex: HexKey; b: BuildingKey; house: House }[];
+  construction?: { hex: HexKey; b: BuildingKey; house: House; up?: number }[];
   svgRef?: RefObject<SVGSVGElement>;
 }
 
@@ -156,6 +156,7 @@ export default function CampaignMap(p: MapProps) {
               <title>{BUILDINGS[b].n}{active ? '' : ' (ruht)'}</title>
               <ellipse cx={bx} cy={by} rx={w * 0.42} ry={7} fill={o ? HOUSES[o].color : '#6E6A60'} opacity={0.55} />
               <g filter="url(#dm-pop)"><image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} filter={active ? undefined : 'url(#dm-rest)'} /></g>
+              {levelOf(c, k) > 1 && <g transform={`translate(${bx - w / 2 + 4},${by - h + 10})`}><rect x={-9} y={-7} width={18} height={14} rx={4} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={3.6} textAnchor="middle" fontSize={9.5} fontWeight={800} fill="#1E1A15" fontFamily="Georgia, serif">{ROMAN[levelOf(c, k)]}</text></g>}
               {!active && <g transform={`translate(${bx + w / 2 - 6},${by - h + 8})`}><circle r={7} fill="#7E2621" stroke="#F1E8D2" strokeWidth={1.2} /><path d="M-3,-3 L3,3 M3,-3 L-3,3" stroke="#F1E8D2" strokeWidth={1.6} /></g>}
             </g>
           );
@@ -166,6 +167,7 @@ export default function CampaignMap(p: MapProps) {
             <circle r={10} fill="#F3EAD4" stroke={o ? HOUSES[o].color : '#6E6A60'} strokeWidth={2.4} />
             <text y={4.2} textAnchor="middle" fontSize={12} fontWeight={700} fill="#2A2118">{BUILDING_ICON[b]}</text>
             {!active && <path d="M-8,8 L8,-8" stroke="#A8322D" strokeWidth={2.4} strokeLinecap="round" />}
+            {levelOf(c, k) > 1 && <text x={11} y={-7} fontSize={9} fontWeight={800} fill="#E2C27F" stroke="#1E1A15" strokeWidth={2.4} paintOrder="stroke">{ROMAN[levelOf(c, k)]}</text>}
           </g>
         );
       })}
@@ -174,6 +176,16 @@ export default function CampaignMap(p: MapProps) {
         const city = !!CITY_HEX[s.hex];
         const bx = x + (city ? 20 : 0), by = y + (city ? 4 : 14);
         const name = spriteName.construction();
+        if (s.up) return (
+          <g key={`c${i}`} pointerEvents="none" className="dm-build">
+            <title>Ausbau: {BUILDINGS[s.b].n} {ROMAN[s.up]}</title>
+            <ellipse cx={x + (city ? 20 : 0)} cy={y + (city ? 4 : 8)} rx={20} ry={8} fill="none" stroke={HOUSES[s.house].color} strokeWidth={2.2} strokeDasharray="4 3" />
+            <g transform={`translate(${x + (city ? 20 : 0) + 16},${y + (city ? 4 : 8) - 34})`}>
+              <rect x={-14} y={-8} width={28} height={16} rx={8} fill="#F3EAD4" stroke={HOUSES[s.house].color} strokeWidth={2} />
+              <text y={4} textAnchor="middle" fontSize={10} fontWeight={800} fill="#2A2118">↑{ROMAN[s.up]}</text>
+            </g>
+          </g>
+        );
         return (
           <g key={`c${i}`} pointerEvents="none" className="dm-build">
             <title>Im Bau: {BUILDINGS[s.b].n}</title>

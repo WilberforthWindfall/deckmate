@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agentBonus, buildingOwnerOf, applyBattle, armyAt, armyById, autoBattle, battleGame, buildingActive, hasNear, income, movePreview, newCampaign,
-  orderProblem, rangeOf, recruitSize, sealOrders, type Campaign, type Order,
+  levelOf, orderCost, orderProblem, rangeOf, recruitSize, researchOf, sealOrders, trainCost, type Campaign, type Order,
 } from './engine.ts';
 import { cityHex, hexDist } from './map.ts';
 
@@ -194,4 +194,29 @@ test('Gebäude: ruht, solange ein feindliches Heer darauf steht; zieht es weiter
   assert.equal(buildingOwnerOf(c, '6,5'), 'K');
   assert.equal(buildingActive(c, '6,5'), true);
   assert.match(c.report.join(' '), /Kerrow erobert bei Aldfurt: Kapelle/);
+});
+
+test('Forschung schaltet den Ausbau frei; Stufen wirken auf Rekruten, Ausbildung und Mauer', () => {
+  let c = newCampaign();
+  c.gold.R = 60;
+  // the chapel next to Aldfurt cannot grow without research
+  assert.match(orderProblem(c, 'R', { kind: 'upgrade', hex: '6,5' }, []), /Forschung „Liturgie“/);
+  // research takes no order: three orders plus research are fine, a second research is not
+  const three: Order[] = [{ kind: 'build', hex: '5,6', b: 'kaserne' }, { kind: 'forage', army: 'a1' }, { kind: 'forage', army: 'a2' }];
+  assert.equal(orderProblem(c, 'R', { kind: 'research', branch: 'glaube' }, three), '');
+  assert.match(orderProblem(c, 'R', { kind: 'research', branch: 'militaer' }, [...three, { kind: 'research', branch: 'glaube' }]), /eine Forschung/);
+  c = seal(c, [...three, { kind: 'research', branch: 'militaer' }]);
+  assert.equal(researchOf(c, 'R', 'militaer'), 1);
+  assert.equal(levelOf(c, '5,6'), 1);
+  assert.equal(recruitSize(c, 'aldfurt', 'R'), 4);
+  // Kaserne II: one more recruit, marines 1 gold cheaper
+  assert.equal(orderProblem(c, 'R', { kind: 'upgrade', hex: '5,6' }, []), '');
+  assert.equal(orderCost(c, 'R', { kind: 'upgrade', hex: '5,6' }), 6);
+  c = seal(c, [{ kind: 'upgrade', hex: '5,6' }]);
+  assert.equal(levelOf(c, '5,6'), 2);
+  assert.equal(recruitSize(c, 'aldfurt', 'R'), 5);
+  assert.equal(trainCost(c, 'aldfurt', 'R', 'MAR'), 3);
+  assert.equal(trainCost(c, 'aldfurt', 'R', 'KAP'), 4);
+  // level III needs the second research
+  assert.match(orderProblem(c, 'R', { kind: 'upgrade', hex: '5,6' }, []), /Kriegskunst/);
 });

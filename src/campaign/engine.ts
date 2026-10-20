@@ -16,14 +16,38 @@ export const SPEC_MAX: Spec = { CAP: 1, KAP: 2, KAN: 2, MAR: 2 };
 const SPECS = Object.keys(SPEC_NAME) as SpecKey[];
 
 export type BuildingKey = 'kapelle' | 'giesserei' | 'kaserne' | 'messe' | 'markt' | 'mauer';
-export const BUILDINGS: Record<BuildingKey, { n: string; art: string; cost: number; effect: string; unlocks?: SpecKey }> = {
-  kapelle: { n: 'Kapelle', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Kapläne ausbilden.', unlocks: 'KAP' },
-  giesserei: { n: 'Gießerei', art: 'eine', cost: 5, effect: 'Städte im Umkreis von 2 Feldern können Kanonaden ausbilden.', unlocks: 'KAN' },
-  kaserne: { n: 'Kaserne', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Marines ausbilden und rekrutieren 1 Figur mehr.', unlocks: 'MAR' },
-  messe: { n: 'Offiziersmesse', art: 'eine', cost: 6, effect: 'Städte im Umkreis von 2 Feldern können einen Captain ausbilden.', unlocks: 'CAP' },
-  markt: { n: 'Markt', art: 'einen', cost: 5, effect: '+1 Gold pro Runde und ein Händler, der zur nächsten eigenen Stadt zieht und dort Gold bringt.' },
-  mauer: { n: 'Stadtmauer', art: 'eine', cost: 5, effect: 'Nur auf dem Stadtfeld: Verteidiger dort sind 30 % stärker.' },
+/** Research areas; each level of research allows the next level of the area's buildings. */
+export type Branch = 'wirtschaft' | 'militaer' | 'glaube' | 'verteidigung';
+export const BUILDINGS: Record<BuildingKey, { n: string; art: string; cost: number; effect: string; unlocks?: SpecKey; branch: Branch }> = {
+  kapelle: { n: 'Kapelle', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Kapläne ausbilden.', unlocks: 'KAP', branch: 'glaube' },
+  giesserei: { n: 'Gießerei', art: 'eine', cost: 5, effect: 'Städte im Umkreis von 2 Feldern können Kanonaden ausbilden.', unlocks: 'KAN', branch: 'militaer' },
+  kaserne: { n: 'Kaserne', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Marines ausbilden und rekrutieren 1 Figur mehr.', unlocks: 'MAR', branch: 'militaer' },
+  messe: { n: 'Offiziersmesse', art: 'eine', cost: 6, effect: 'Städte im Umkreis von 2 Feldern können einen Captain ausbilden.', unlocks: 'CAP', branch: 'militaer' },
+  markt: { n: 'Markt', art: 'einen', cost: 5, effect: '+1 Gold pro Runde und ein Händler, der zur nächsten eigenen Stadt zieht und dort Gold bringt.', branch: 'wirtschaft' },
+  mauer: { n: 'Stadtmauer', art: 'eine', cost: 5, effect: 'Nur auf dem Stadtfeld: Verteidiger dort sind 30 % stärker.', branch: 'verteidigung' },
 };
+export const MAX_LEVEL = 3;
+export const ROMAN = ['', 'I', 'II', 'III'];
+export const WALL = [1, 1.3, 1.5, 1.7];
+export const BRANCHES: Record<Branch, { n: string; research: [string, string]; text: string }> = {
+  wirtschaft: { n: 'Wirtschaft', research: ['Zunftwesen', 'Fernhandel'], text: 'erlaubt Märkte der nächsten Stufe' },
+  militaer: { n: 'Militär', research: ['Drill', 'Kriegskunst'], text: 'erlaubt Kaserne, Gießerei und Offiziersmesse der nächsten Stufe' },
+  glaube: { n: 'Glaube', research: ['Liturgie', 'Orden'], text: 'erlaubt Kapellen der nächsten Stufe' },
+  verteidigung: { n: 'Verteidigung', research: ['Festungsbau', 'Bastionen'], text: 'erlaubt Stadtmauern der nächsten Stufe' },
+};
+export const BRANCH_KEYS = Object.keys(BRANCHES) as Branch[];
+/** Gold for research level 1 and 2. Research takes no order; one research per round. */
+export const RESEARCH_COST = [4, 7];
+/** What a building does at a given level. */
+export function levelEffect(b: BuildingKey, l: number): string {
+  if (l <= 1) return BUILDINGS[b].effect;
+  const cheaper = BUILDINGS[b].unlocks ? `${SPEC_NAME[BUILDINGS[b].unlocks!]} im Umkreis ${l - 1} Gold billiger` : '';
+  if (b === 'kaserne') return `Rekruten +${l}, ${cheaper}`;
+  if (b === 'markt') return `+${l} Gold pro Runde, Händler bringen ${l - 1} Gold mehr`;
+  if (b === 'mauer') return `Verteidiger auf dem Stadtfeld ${Math.round((WALL[l] - 1) * 100)} % stärker`;
+  return cheaper;
+}
+export const upgradeCost = (b: BuildingKey, level: number) => BUILDINGS[b].cost + 2 * level;
 export const BUILDING_KEYS = Object.keys(BUILDINGS) as BuildingKey[];
 export const buildingFor = (spec: SpecKey) => BUILDING_KEYS.find((k) => BUILDINGS[k].unlocks === spec)!;
 
@@ -58,7 +82,12 @@ export type Order =
   | { kind: 'agent'; agent: string; path: HexKey[] }
   | { kind: 'recruit'; prov: string }
   | { kind: 'train'; prov: string; spec: SpecKey; alone?: boolean }
-  | { kind: 'build'; hex: HexKey; b: BuildingKey };
+  | { kind: 'build'; hex: HexKey; b: BuildingKey }
+  | { kind: 'upgrade'; hex: HexKey }
+  | { kind: 'research'; branch: Branch };
+/** Research is free of the order limit. */
+export const countsAsOrder = (o: Order) => o.kind !== 'research';
+export const orderCount = (os: Order[]) => os.filter(countsAsOrder).length;
 
 export interface PendingBattle {
   id: string;
@@ -106,6 +135,10 @@ export interface Campaign {
    * took, the building is captured and serves the new owner.
    */
   buildingOwner: Record<HexKey, House>;
+  /** Level of each building (missing = 1). */
+  levels?: Record<HexKey, number>;
+  /** Research level of each house per area (missing = 0). */
+  research?: Record<House, Partial<Record<Branch, number>>>;
   gold: Record<House, number>;
   armies: CArmy[];
   agents: Agent[];
@@ -165,10 +198,15 @@ function settleBuildings(c: Campaign, log: string[]) {
     if (was) log.push(`${hn(o)} erobert bei ${hexName(k)}: ${BUILDINGS[c.buildings[k]].n}.`);
   }
 }
+export const levelOf = (c: Campaign, hex: HexKey) => (c.buildings[hex] ? c.levels?.[hex] ?? 1 : 0);
+export const researchOf = (c: Campaign, h: House, br: Branch) => c.research?.[h]?.[br] ?? 0;
 /** Buildings in a city's Umland. */
 export function buildingsNear(c: Campaign, prov: string) {
-  return umland(prov).filter((k) => c.buildings[k]).map((k) => ({ hex: k, b: c.buildings[k], owner: buildingOwnerOf(c, k), active: buildingActive(c, k) }));
+  return umland(prov).filter((k) => c.buildings[k]).map((k) => ({ hex: k, b: c.buildings[k], level: levelOf(c, k), owner: buildingOwnerOf(c, k), active: buildingActive(c, k) }));
 }
+/** Highest level of an active building of this kind the house has in the city's Umland (0 if none). */
+export const bestNear = (c: Campaign, prov: string, b: BuildingKey, house: House) =>
+  Math.max(0, ...buildingsNear(c, prov).filter((x) => x.b === b && x.active && x.owner === house).map((x) => x.level));
 /** Does the house have an active building of this kind in the city's Umland? */
 export const hasNear = (c: Campaign, prov: string, b: BuildingKey, house: House) =>
   buildingsNear(c, prov).some((x) => x.b === b && x.active && x.owner === house);
@@ -182,11 +220,13 @@ const bonusesNear = (c: Campaign, prov: string, house: House) =>
   c.agents.filter((a) => a.house === house && hexDist(a.hex, cityHex(prov)) <= UMLAND).map((a) => agentBonus(c, a)).filter(Boolean) as AgentBonus[];
 
 export const recruitSize = (c: Campaign, prov: string, house: House = cityOwner(c, prov) ?? 'R') =>
-  3 + (hasNear(c, prov, 'kaserne', house) ? 1 : 0) + bonusesNear(c, prov, house).reduce((n, b) => n + (b.recruit ?? 0), 0);
-export const trainCost = (c: Campaign, prov: string, house: House) =>
-  Math.max(1, COST.train - bonusesNear(c, prov, house).reduce((n, b) => n + (b.train ?? 0), 0));
+  3 + bestNear(c, prov, 'kaserne', house) + bonusesNear(c, prov, house).reduce((n, b) => n + (b.recruit ?? 0), 0);
+export const trainCost = (c: Campaign, prov: string, house: House, spec?: SpecKey) =>
+  Math.max(1, COST.train - bonusesNear(c, prov, house).reduce((n, b) => n + (b.train ?? 0), 0) - (spec ? Math.max(0, bestNear(c, prov, buildingFor(spec), house) - 1) : 0));
 export const orderCost = (c: Campaign, house: House, o: Order) =>
-  o.kind === 'recruit' ? COST.recruit : o.kind === 'train' ? trainCost(c, o.prov, house) : o.kind === 'build' ? BUILDINGS[o.b].cost : 0;
+  o.kind === 'recruit' ? COST.recruit : o.kind === 'train' ? trainCost(c, o.prov, house, o.spec) : o.kind === 'build' ? BUILDINGS[o.b].cost
+    : o.kind === 'upgrade' ? (c.buildings[o.hex] ? upgradeCost(c.buildings[o.hex], levelOf(c, o.hex)) : 0)
+    : o.kind === 'research' ? RESEARCH_COST[researchOf(c, house, o.branch)] ?? 0 : 0;
 
 /** Movement points of an army: small armies are quicker, without specialists there is no discipline (−1). */
 export function rangeOf(a: CArmy): number {
@@ -198,7 +238,7 @@ export const pathCost = (path: HexKey[]) => path.reduce((n, k) => n + stepCost(k
 /** Defence factor of a wall on this hex for its owner (with a cannon on the wall). */
 function wallFactor(c: Campaign, hex: HexKey, house: House) {
   if (c.buildings[hex] !== 'mauer' || buildingOwnerOf(c, hex) !== house || !buildingActive(c, hex)) return 1;
-  return 1.3 + c.agents.filter((a) => a.hex === hex && a.house === house).reduce((n, a) => n + (agentBonus(c, a)?.wall ?? 0), 0);
+  return WALL[levelOf(c, hex)] + c.agents.filter((a) => a.hex === hex && a.house === house).reduce((n, a) => n + (agentBonus(c, a)?.wall ?? 0), 0);
 }
 export function strength(c: Campaign, a: CArmy, hex: HexKey, supports: CArmy[], defending: boolean) {
   const base = a.size + supports.reduce((s, x) => s + x.size / 2, 0);
@@ -217,7 +257,7 @@ function sideOf(c: Campaign, a: CArmy, from: HexKey, hex: HexKey, supports: CArm
 
 export function income(c: Campaign, h: House) {
   const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
-  const markets = Object.keys(c.buildings).filter((k) => c.buildings[k] === 'markt' && buildingOwnerOf(c, k) === h && buildingActive(c, k)).length;
+  const markets = Object.keys(c.buildings).filter((k) => c.buildings[k] === 'markt' && buildingOwnerOf(c, k) === h && buildingActive(c, k)).reduce((n, k) => n + levelOf(c, k), 0);
   const collected = c.agents.filter((a) => a.house === h).reduce((n, a) => n + (agentBonus(c, a)?.gold ?? 0), 0);
   const cities = provs.filter((p) => p.city).length * 2;
   return { provinces: provs.length, cities, markets, agents: collected, total: provs.length + cities + markets + collected };
@@ -259,7 +299,7 @@ export function newCampaign(): Campaign {
     if (k) { buildings[k] = 'kapelle'; buildingOwner[k] = PROV[cap].capital!; }
   }
   const c: Campaign = {
-    v: 2, round: 1, maxRounds: 10, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner,
+    v: 2, round: 1, maxRounds: 10, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner, levels: {}, research: { R: {}, K: {} },
     gold: { R: 4, K: 4 }, armies, agents: [], traders: [],
     orders: { R: [], K: [] }, sealed: { R: false, K: false }, battles: [],
     report: ['Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
@@ -291,13 +331,34 @@ function pathProblem(c: Campaign, house: House, from: HexKey, path: HexKey[], bu
 
 /** Why an order is not allowed (empty string if it is), given the house's other orders this round. */
 export function orderProblem(c: Campaign, house: House, o: Order, others: Order[]): string {
-  if (others.length >= ORDERS_PER_ROUND) return `Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`;
+  if (countsAsOrder(o) && orderCount(others) >= ORDERS_PER_ROUND) return `Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`;
   const spent = others.reduce((g, x) => g + orderCost(c, house, x), 0);
+  if (o.kind === 'research') {
+    const l = researchOf(c, house, o.branch);
+    if (others.some((x) => x.kind === 'research')) return 'Pro Runde eine Forschung.';
+    if (l >= MAX_LEVEL - 1) return `${BRANCHES[o.branch].n} ist fertig erforscht.`;
+    if (c.gold[house] - spent < RESEARCH_COST[l]) return `Dafür fehlt Gold (${RESEARCH_COST[l]} nötig).`;
+    return '';
+  }
+  if (o.kind === 'upgrade') {
+    const b = c.buildings[o.hex];
+    if (!b) return 'Hier steht kein Gebäude.';
+    if (buildingOwnerOf(c, o.hex) !== house) return 'Das Gebäude gehört nicht deinem Haus.';
+    if (!buildingActive(c, o.hex)) return 'Das Gebäude ruht gerade.';
+    const l = levelOf(c, o.hex);
+    if (l >= MAX_LEVEL) return `${BUILDINGS[b].n} hat schon die höchste Stufe.`;
+    if (researchOf(c, house, BUILDINGS[b].branch) < l && others.some((x) => x.kind === 'research' && x.branch === BUILDINGS[b].branch)) return `Die Forschung „${BRANCHES[BUILDINGS[b].branch].research[l - 1]}“ wirkt erst ab der nächsten Runde.`;
+    if (researchOf(c, house, BUILDINGS[b].branch) < l) return `Für Stufe ${ROMAN[l + 1]} fehlt die Forschung „${BRANCHES[BUILDINGS[b].branch].research[l - 1]}“ (${BRANCHES[BUILDINGS[b].branch].n}).`;
+    if (others.some((x) => x.kind === 'upgrade' && x.hex === o.hex)) return 'Hier wird schon ausgebaut.';
+    const cost = upgradeCost(b, l);
+    if (c.gold[house] - spent < cost) return `Dafür fehlt Gold (${cost} nötig).`;
+    return '';
+  }
   if (o.kind === 'build') {
     if (!HEX[o.hex]) return 'Bauen geht nur an Land.';
     if (c.hexOwner[o.hex] !== house) return 'Bauen geht nur auf eigenen Feldern.';
     if (c.buildings[o.hex]) return `Hier steht schon ${BUILDINGS[c.buildings[o.hex]].art} ${BUILDINGS[c.buildings[o.hex]].n}.`;
-    if (others.some((x) => x.kind === 'build' && x.hex === o.hex)) return 'Hier wird schon gebaut.';
+    if (others.some((x) => (x.kind === 'build' || x.kind === 'upgrade') && x.hex === o.hex)) return 'Hier wird schon gebaut.';
     if (c.armies.some((a) => a.hex === o.hex && a.house !== house)) return 'Auf dem Feld steht ein feindliches Heer.';
     const city = CITY_HEX[o.hex];
     if (o.b === 'mauer' && !city) return 'Eine Stadtmauer gehört auf das Stadtfeld.';
@@ -463,16 +524,29 @@ function resolve(c: Campaign, rng: Rng): Campaign {
   const battles: PendingBattle[] = [];
   const all = (['R', 'K'] as House[]).flatMap((h) => c.orders[h].map((o) => ({ h, o })));
 
-  // 1. Building, training, supplies
+  // 1. Research, building, training, supplies
   for (const { h, o } of all) {
+    if (o.kind === 'research') {
+      const l = researchOf(c, h, o.branch);
+      c.gold[h] -= RESEARCH_COST[l];
+      ((c.research ??= { R: {}, K: {} })[h] ??= {})[o.branch] = l + 1;
+      log.push(`${hn(h)} erforscht ${BRANCHES[o.branch].research[l]} (${BRANCHES[o.branch].n} ${ROMAN[l + 1]}).`);
+    }
+    if (o.kind === 'upgrade') {
+      const l = levelOf(c, o.hex);
+      c.gold[h] -= upgradeCost(c.buildings[o.hex], l);
+      (c.levels ??= {})[o.hex] = l + 1;
+      log.push(`${hn(h)} baut bei ${hexName(o.hex)} aus: ${BUILDINGS[c.buildings[o.hex]].n} ${ROMAN[l + 1]}.`);
+    }
     if (o.kind === 'build') {
       c.gold[h] -= BUILDINGS[o.b].cost;
       c.buildings[o.hex] = o.b;
       (c.buildingOwner ??= {})[o.hex] = h;
+      (c.levels ??= {})[o.hex] = 1;
       log.push(`${hn(h)} baut bei ${hexName(o.hex)}: ${BUILDINGS[o.b].n}.`);
     }
     if (o.kind === 'train') {
-      c.gold[h] -= trainCost(c, o.prov, h);
+      c.gold[h] -= trainCost(c, o.prov, h, o.spec);
       if (o.alone) {
         c.agents.push({ id: `g${c.nextId++}`, house: h, spec: o.spec, hex: cityHex(o.prov) });
         log.push(`${hn(h)} bildet in ${PROV[o.prov].n} einen ${SPEC_NAME[o.spec]} als Einzelgänger aus.`);
@@ -781,8 +855,9 @@ function endRound(c: Campaign): Campaign {
     const to = nearestCity(c, k, h);
     if (!to) continue;
     const steps = walkPath(k, to)?.length ?? 0;
-    c.traders.push({ id: `t${c.nextId++}`, house: h, hex: k, market: k, to, gold: 2 + steps });
-    log.push(`Vom Markt bei ${hexName(k)} bricht ein Händler von ${hn(h)} nach ${PROV[CITY_HEX[to]].n} auf (${2 + steps} Gold).`);
+    const gold = 2 + steps + levelOf(c, k) - 1;
+    c.traders.push({ id: `t${c.nextId++}`, house: h, hex: k, market: k, to, gold });
+    log.push(`Vom Markt bei ${hexName(k)} bricht ein Händler von ${hn(h)} nach ${PROV[CITY_HEX[to]].n} auf (${gold} Gold).`);
   }
   for (const h of ['R', 'K'] as House[]) {
     const cap = PROVINCES.find((p) => p.capital === OTHER[h])!;
