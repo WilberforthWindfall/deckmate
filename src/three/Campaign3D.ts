@@ -5,7 +5,7 @@ import {
 } from '../campaign/map.ts';
 import { buildingActive, buildingOwnerOf, type Campaign, type Order, type SpecKey, type Tone } from '../campaign/engine.ts';
 import { AGENT_ABBR, BUILDING_ICON } from '../campaign/CampaignMap.tsx';
-import { BUILDINGS, ROMAN, levelOf, type BuildingKey } from '../campaign/engine.ts';
+import { BUILDINGS, ROMAN, levelOf, rankOf, xpOn, type BuildingKey } from '../campaign/engine.ts';
 import { SPRITE_SIZE, hasSprite, spriteName, spriteUrl } from '../campaign/sprites.ts';
 
 // 3D view of the campaign map. Same inputs as the SVG map; the rules engine is untouched.
@@ -510,7 +510,8 @@ export class Campaign3D {
       const spec = a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR;
       const sprite = spriteName.army(a.house, !!v.moving?.has(a.id));
       if (hasSprite(sprite)) {
-        place(a.id, ['P', sprite, a.size, spec, marks[a.id] ?? '', v.selectedUnit === a.id].join('|'), this.unitPos(a.id, a.hex, v, CITY_HEX[a.hex] ? 0.22 : 0, CITY_HEX[a.hex] ? 0.42 : 0, 0.02), (g) => {
+        const rank = xpOn(v.c) ? rankOf(a) : 0;
+        place(a.id, ['P', sprite, a.size, spec, rank, marks[a.id] ?? '', v.selectedUnit === a.id].join('|'), this.unitPos(a.id, a.hex, v, CITY_HEX[a.hex] ? 0.22 : 0, CITY_HEX[a.hex] ? 0.42 : 0, 0.02), (g) => {
           const body = this.painted(sprite, 1.5); body.userData.army = a.id; body.renderOrder = 4; g.add(body);
           if (v.selectedUnit === a.id) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 6, 30), new THREE.MeshBasicMaterial({ color: 0xe2c27f })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.03; g.add(ring); }
           const badge = canvasSprite(56, 26, (cx) => {
@@ -518,6 +519,15 @@ export class Campaign3D {
             cx.fillStyle = '#FFF8F2'; cx.font = '800 13px Figtree, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(String(a.size), 21, 14);
             if (spec) { cx.fillStyle = '#E2C27F'; cx.beginPath(); cx.arc(46, 13, 8, 0, Math.PI * 2); cx.fill(); cx.fillStyle = '#1E1A15'; cx.font = '700 10px Figtree, sans-serif'; cx.fillText(String(spec), 46, 14); }
           }, 0.44);
+          if (rank) {
+            const ch = canvasSprite(24, 22, (cx) => {
+              for (let i = 0; i < rank; i++) for (const [w, col] of [[5, '#1E1A15'], [2.6, '#E2C27F']] as const) {
+                cx.strokeStyle = col; cx.lineWidth = w; cx.lineCap = 'round'; cx.lineJoin = 'round';
+                cx.beginPath(); cx.moveTo(4, 10 + i * 6); cx.lineTo(12, 4 + i * 6); cx.lineTo(20, 10 + i * 6); cx.stroke();
+              }
+            }, 0.24);
+            ch.position.set(-0.32, 1.42, 0); ch.userData.army = a.id; ch.renderOrder = 5; g.add(ch);
+          }
           badge.position.y = 1.7; badge.userData.army = a.id; badge.renderOrder = 5; g.add(badge);
           g.userData.army = a.id;
           return body;

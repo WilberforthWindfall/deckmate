@@ -8,13 +8,14 @@ import { HelpButton } from '../campaign/Help.tsx';
 import Overview from '../campaign/Overview.tsx';
 import { CityPanel, HexPanel, describe, specText } from '../campaign/Panels.tsx';
 import BuildBar, { type BuildPick } from '../campaign/BuildBar.tsx';
+import StartDialog from '../campaign/StartDialog.tsx';
 import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
 import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
   AGENT_RANGE, BUILDINGS, ORDERS_PER_ROUND, levelOf, orderCount, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
-  movePreview, newCampaign, orderCost, orderProblem, pathCost, rangeOf, score, sealOrders,
+  GOAL_POINTS, finalScore, goalMet, goalText, movePreview, newCampaign, orderCost, orderProblem, pathCost, rangeOf, score, sealOrders,
   type Branch, type Campaign as CampaignState, type Order, type Tone,
 } from '../campaign/engine.ts';
 import { CITY_HEX, HEX_ADJ, HOUSES, LAND, PROVINCES, hexCenter, hexLand, hexName, pathTo, reachable, type HexKey, type House } from '../campaign/map.ts';
@@ -28,9 +29,9 @@ const LEFT_PANEL = {
   position: 'absolute' as const, left: 0, top: 58, bottom: 0, width: LEFT, zIndex: 6, overflowY: 'auto' as const, gap: 12,
   padding: 16, background: 'var(--hull)', borderRight: '1px solid var(--rope)',
 };
-const load = (): CampaignState => {
+const saved = (): CampaignState | null => {
   try { const s = localStorage.getItem(KEY); if (s) { const c = JSON.parse(s) as CampaignState; if (c.v === 2) return c; } } catch { /* ignore */ }
-  return newCampaign();
+  return null;
 };
 const save = (c: CampaignState) => { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* ignore */ } };
 const STEP_MS = 650;
@@ -39,7 +40,9 @@ type Unit = { kind: 'army' | 'agent'; id: string };
 type Panel = { kind: 'overview' } | { kind: 'city'; prov: string } | { kind: 'hex'; hex: HexKey };
 
 export default function Campaign() {
-  const [c, setC] = useState<CampaignState>(load);
+  const [c, setC] = useState<CampaignState>(() => saved() ?? newCampaign());
+  /** Start dialog: shown when there is no saved campaign, or for a new one. */
+  const [setup, setSetup] = useState(() => !saved());
   const [ready, setReady] = useState(false);
   const [draft, setDraft] = useState<Order[]>([]);
   const [selHex, setSelHex] = useState<HexKey | null>(null);
@@ -70,7 +73,7 @@ export default function Campaign() {
   const [banner, setBanner] = useState<number | null>(null);
   const shownRound = useRef(0);
 
-  useEffect(() => save(c), [c]);
+  useEffect(() => { if (!setup) save(c); }, [c, setup]);
   const clearSel = () => { setUnit(null); setPath([]); setMode('move'); setBuildMode(null); setSite(null); };
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUnit(null); setPath([]); setBuildMode(null); setSite(null); setPanel({ kind: 'overview' }); } };
@@ -213,10 +216,11 @@ export default function Campaign() {
       setC(next); setDraft([]); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setReady(false);
     } catch (e) { flash((e as Error).message); }
   }
-  function restart() {
-    if (!confirm('Kampagne neu beginnen? Der aktuelle Stand geht verloren.')) return;
+  function restart() { setSetup(true); }
+  function begin(o: Parameters<typeof newCampaign>[0]) {
     shownRound.current = 0;
-    setC(newCampaign()); setDraft([]); setReady(false); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setBattle(null); setShow(null); setConf(null);
+    setC(newCampaign(o)); setDraft([]); setReady(false); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setBattle(null); setShow(null); setConf(null);
+    setSetup(false);
   }
   function takeBattle() {
     if (!battle) return;
@@ -457,7 +461,9 @@ export default function Campaign() {
           </div>
         )}
 
-        {c.phase === 'orders' && !ready && !show && banner === null && (
+        {setup && <StartDialog onStart={begin} onCancel={saved() && c.phase !== 'over' ? () => setSetup(false) : undefined} />}
+
+        {c.phase === 'orders' && !ready && !show && banner === null && !setup && (
           <div className="overlay" style={{ zIndex: 12 }}><div className="dialog">
             <h2>Runde {c.round}: {HOUSES[h].n}</h2>
             <p>Gib das Gerät an <b>{HOUSES[h].n}</b>. {HOUSES[OTHER[h]].n} schaut bitte weg, die Befehle sind geheim.</p>
@@ -465,16 +471,24 @@ export default function Campaign() {
             <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => setReady(true)}>Ich bin {HOUSES[h].n}</button></div>
           </div></div>
         )}
-        {c.phase === 'over' && !show && (
+        {c.phase === 'over' && !show && !setup && (
           <div className="overlay" style={{ zIndex: 30 }}><div className="dialog" style={{ maxHeight: 'calc(100% - 32px)', overflowY: 'auto', width: 'min(520px, 100%)', maxWidth: 520 }}>
             <h2>{c.winner ? `${HOUSES[c.winner].n} gewinnt` : 'Unentschieden'}</h2>
             <p>{c.winReason}</p>
-            <p>Punkte: Ravensmoor {score(c, 'R')} · Kerrow {score(c, 'K')}</p>
-            <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => { shownRound.current = 0; setC(newCampaign()); setReady(false); }}>Neue Kampagne</button></div>
+            <p>Punkte: Ravensmoor {finalScore(c, 'R')} · Kerrow {finalScore(c, 'K')}</p>
+            {c.goals && (
+              <div className="stack" style={{ gap: 6, textAlign: 'left', margin: '0 0 12px' }}>
+                <span className="lbl">Geheime Ziele</span>
+                {(['R', 'K'] as House[]).map((x) => (
+                  <span key={x}><b style={{ color: HOUSES[x].color }}>{HOUSES[x].n}:</b> {goalText(c.goals![x])} {goalMet(c, x) ? <b>Erfüllt, +{GOAL_POINTS} Punkte.</b> : <span className="rule">Nicht erfüllt.</span>}</span>
+                ))}
+              </div>
+            )}
+            <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => setSetup(true)}>Neue Kampagne</button></div>
             <div style={{ borderTop: '1px solid var(--rope)', marginTop: 16, paddingTop: 14, textAlign: 'left' }}>
               <h3 style={{ fontFamily: 'var(--display)', fontWeight: 500, margin: '0 0 8px' }}>Wie war die Kampagne?</h3>
               <FeedbackForm where="kampagne-ende" intro="Ein paar Sätze von dir helfen enorm: Was hat Spaß gemacht, was war zäh oder unklar, was fehlt?"
-                context={{ Runde: c.round, Sieger: c.winner ? HOUSES[c.winner].n : 'Unentschieden', Punkte: `Ravensmoor ${score(c, 'R')} : ${score(c, 'K')} Kerrow`, Grund: c.winReason ?? '' }} />
+                context={{ Runde: c.round, Sieger: c.winner ? HOUSES[c.winner].n : 'Unentschieden', Punkte: `Ravensmoor ${finalScore(c, 'R')} : ${finalScore(c, 'K')} Kerrow`, Grund: c.winReason ?? '' }} />
             </div>
           </div></div>
         )}

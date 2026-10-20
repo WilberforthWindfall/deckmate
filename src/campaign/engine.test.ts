@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agentBonus, buildingOwnerOf, applyBattle, armyAt, armyById, autoBattle, battleGame, buildingActive, hasNear, income, movePreview, newCampaign,
-  levelOf, orderCost, orderProblem, rangeOf, recruitSize, researchOf, sealOrders, trainCost, type Campaign, type Order,
+  finalScore, goalMet, goalProgress, levelOf, orderCost, rankOf, score, strength, orderProblem, rangeOf, recruitSize, researchOf, sealOrders, trainCost, type Campaign, type Order,
 } from './engine.ts';
 import { cityHex, hexDist } from './map.ts';
 
@@ -219,4 +219,39 @@ test('Forschung schaltet den Ausbau frei; Stufen wirken auf Rekruten, Ausbildung
   assert.equal(trainCost(c, 'aldfurt', 'R', 'KAP'), 4);
   // level III needs the second research
   assert.match(orderProblem(c, 'R', { kind: 'upgrade', hex: '5,6' }, []), /Kriegskunst/);
+});
+
+test('Erfahrung: Sieger steigen auf, Veteranen sind stärker, Vereinigen verwässert', () => {
+  let c = newCampaign({ experience: true, goals: false });
+  const a1 = armyById(c, 'a1')!;
+  assert.equal(rankOf(a1), 0);
+  a1.xp = 4;
+  assert.equal(rankOf(a1), 2);
+  assert.equal(strength(c, a1, '7,5', [], false), 12); // 10 × 1,2
+  // merging 6 green soldiers into 10 veterans: 4 × 10 / 16 → 2 (Erprobt)
+  put(c, 'a2', '5,6');
+  c = seal(c, [{ kind: 'move', army: 'a2', path: ['5,5'] }]);
+  const merged = c.armies.find((a) => a.house === 'R' && a.hex === cityHex('aldfurt'))!;
+  assert.equal(merged.size, 16);
+  assert.equal(rankOf(merged), 1);
+  // a clear win gives experience
+  const off = newCampaign({ experience: false, goals: false });
+  armyById(off, 'a1')!.xp = 9;
+  assert.equal(strength(off, armyById(off, 'a1')!, '7,5', [], false), 10);
+  let w = newCampaign({ experience: true, goals: false });
+  put(w, 'a3', '7,5', 4);
+  w = seal(w, [{ kind: 'move', army: 'a1', path: ['6,5', '7,5'] }]);
+  assert.equal(armyById(w, 'a1')!.xp, 1);
+});
+
+test('Geheime Ziele: verdeckt gezogen, zählen am Ende mit', () => {
+  const c = newCampaign({ maxRounds: 6, goals: true, experience: true }, () => 0.1);
+  assert.equal(c.maxRounds, 6);
+  assert.ok(c.goals?.R && c.goals?.K);
+  c.goals!.R = { kind: 'cities', n: 2 };
+  assert.deepEqual(goalProgress(c, 'R', c.goals!.R), [2, 2]);
+  assert.ok(goalMet(c, 'R'));
+  assert.equal(finalScore(c, 'R'), score(c, 'R') + 4);
+  const none = newCampaign({ goals: false });
+  assert.equal(none.goals, undefined);
 });

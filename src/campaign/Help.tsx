@@ -59,7 +59,9 @@ function chapters(): Chapter[] {
         { t: 'Händler', d: `Jeder aktive Markt schickt einen Händler zur nächsten eigenen Stadt. Er zieht ${TRADER_SPEED} Felder pro Runde und bringt bei Ankunft Gold (je weiter, desto mehr). Ein feindliches Heer auf seinem Weg überfällt ihn und erbeutet die Hälfte.`, tags: 'markt gold handel' },
         { t: 'Einkommen', d: 'Am Rundenende: 1 Gold je Provinz, +2 je Stadt, +1 je aktivem Markt, dazu die Kollekte von Kaplänen auf Märkten. Händler bringen extra.', tags: 'gold' },
         { t: 'Gold', d: 'In der Kopfleiste steht „verfügbar/gesamt“: was nach deinen geplanten Befehlen übrig bleibt. Das Gold des Gegners bleibt verdeckt.', tags: 'geld' },
-        { t: 'Punkte', d: 'Provinz 1 Punkt, Stadt 3 Punkte. Nach der letzten Runde gewinnt, wer mehr Punkte hat.', tags: 'sieg wertung' },
+        { t: 'Punkte', d: 'Provinz 1 Punkt, Stadt 3 Punkte, ein erfülltes geheimes Ziel 4 Punkte. Nach der letzten Runde gewinnt, wer mehr Punkte hat. Die Rundenzahl wird beim Start gewählt.', tags: 'sieg wertung runden' },
+        { t: 'Geheimes Ziel', d: 'Wird beim Start gezogen, wenn eingeschaltet. Nur das eigene Haus sieht es links in der Übersicht, mit Fortschritt. Erst nach der letzten Runde wird aufgedeckt; erfüllt bringt es 4 Punkte.', tags: 'ziel mission auftrag' },
+        { t: 'Erfahrung', d: 'Wenn eingeschaltet: Ein Heer bekommt 1 Erfahrung für einen klar gewonnenen Konflikt, nach einer Schlacht 1 für jede überlebende Seite und 1 mehr für den Sieger. Ab 2 ist es Erprobt (+10 % Stärke, ein Winkel), ab 4 Veteran (+20 %, zwei Winkel, eine Extrakarte auf dem Brett). Vereinigen und Rekruten verwässern die Erfahrung nach Köpfen.', tags: 'veteran erprobt rang xp winkel' },
       ],
     },
     {
