@@ -37,6 +37,8 @@ test('POST: ohne Token klare Meldung, mit Token wird bei GitHub angelegt', async
     assert.equal((await r.json()).number, 42);
     assert.equal(calls[0].url, 'https://api.github.com/repos/WilberforthWindfall/deckmate/issues');
     assert.match(String((calls[0].init.headers as Record<string, string>).authorization), /Bearer test-token/);
+    assert.equal(calls[1].url, 'https://api.github.com/repos/WilberforthWindfall/deckmate/issues/42/labels');
+    calls.length = 0;
     for (let i = 0; i < 5; i++) await POST(req({ rating: 5 }, '9.9.9.3'));
     assert.equal((await POST(req({ rating: 5 }, '9.9.9.3'))).status, 429);
   } finally { globalThis.fetch = orig; delete env.GITHUB_TOKEN; }

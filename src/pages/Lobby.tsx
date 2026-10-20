@@ -131,7 +131,7 @@ export default function Lobby() {
             <div className="card stack">
               <h2>Feedback an die Werft</h2>
               <p className="rule" style={{ margin: 0 }}>Etwas gefunden, das nervt, oder eine Idee für Deckmate? Wünsche und Kritik landen direkt bei der Entwicklung.</p>
-              <FeedbackButton where="lobby" defaultName={user.displayName ?? ''} context={{ Bilanz: `${record.wins} Siege, ${record.losses} Niederlagen` }} />
+              <FeedbackButton where="lobby" defaultName={user.displayName ?? ''} context={{ Bilanz: `${record.wins} ${record.wins === 1 ? 'Sieg' : 'Siege'}, ${record.losses} ${record.losses === 1 ? 'Niederlage' : 'Niederlagen'}` }} />
             </div>
           </div>
         </div>
