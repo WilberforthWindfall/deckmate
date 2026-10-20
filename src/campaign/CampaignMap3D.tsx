@@ -48,7 +48,7 @@ export default function CampaignMap3D(p: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    map.current?.update({ c: p.c, selectedHex: p.selectedHex, selectedUnit: p.selectedUnit, reach: p.reach, plan: p.plan, orders: p.orders, labels: p.labels, focus: p.focus, posOverride: p.posOverride });
+    map.current?.update({ c: p.c, selectedHex: p.selectedHex, selectedUnit: p.selectedUnit, reach: p.reach, plan: p.plan, orders: p.orders, labels: p.labels, focus: p.focus, posOverride: p.posOverride, moving: p.moving, construction: p.construction });
   });
 
   const focus = p.focus?.[0];
