@@ -5,6 +5,7 @@ import { useAuth } from '../auth.tsx';
 import { db } from '../firebase.ts';
 import { createGame, deleteGame, joinGame, watchLobby, watchMyFinished, type GameDoc } from '../online.ts';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
+import { FeedbackButton } from '../components/Feedback.tsx';
 
 export default function Lobby() {
   const { user, logout } = useAuth();
@@ -126,6 +127,11 @@ export default function Lobby() {
               <h2>Kampagne um Eridanos</h2>
               <p className="rule" style={{ margin: 0 }}>Prototyp an einem Gerät: Ravensmoor gegen Kerrow auf der Hexkarte. Geheime Befehle reihum, knappe Kämpfe als Deckmate-Schlacht.</p>
               <Link to="/kampagne"><button type="button" className="primary">Kampagne spielen</button></Link>
+            </div>
+            <div className="card stack">
+              <h2>Feedback an die Werft</h2>
+              <p className="rule" style={{ margin: 0 }}>Etwas gefunden, das nervt, oder eine Idee für Deckmate? Wünsche und Kritik landen direkt bei der Entwicklung.</p>
+              <FeedbackButton where="lobby" defaultName={user.displayName ?? ''} context={{ Bilanz: `${record.wins} Siege, ${record.losses} Niederlagen` }} />
             </div>
           </div>
         </div>

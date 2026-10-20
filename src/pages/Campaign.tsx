@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
 import { battleResult } from '../game/battle.ts';
 import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
+import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
+import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
   BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, movePreview, orderProblem, score, sealOrders,
   type CArmy, type Campaign as CampaignState, type Order, type SpecKey, type Tone,
 } from '../campaign/engine.ts';
-import { ADJ, HOUSES, LAND, PROV, PROVINCES, type House } from '../campaign/map.ts';
+import { ADJ, HOUSES, LAND, PROV, PROVINCES, provCenter, type House } from '../campaign/map.ts';
 
 // Campaign prototype on one device: houses give their orders in turn (the other player looks away), then all resolve at once.
 
@@ -45,8 +47,16 @@ export default function Campaign() {
   const [city, setCity] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [battle, setBattle] = useState<{ id: string; st: GameState } | null>(null);
-  /** Reveal animation after both houses sealed: first all orders as arrows, then the armies march. */
-  const [show, setShow] = useState<null | 'orders' | 'move'>(null);
+  /**
+   * Reveal after both houses sealed: all orders as arrows, then every army sets out (those that turn back stop halfway),
+   * then they settle where they end up, then the conflicts are explained one by one.
+   */
+  const [show, setShow] = useState<null | 'orders' | 'advance' | 'settle' | 'conflicts'>(null);
+  /** Index of the conflict whose explanation card is open. */
+  const [conf, setConf] = useState<number | null>(null);
+  const [cardPos, setCardPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const mapBox = useRef<HTMLDivElement>(null);
   const [banner, setBanner] = useState<number | null>(null);
   const shownRound = useRef(0);
   const stage = useRef<HTMLDivElement>(null);
@@ -58,13 +68,35 @@ export default function Campaign() {
     return () => window.removeEventListener('keydown', esc);
   }, []);
   useEffect(() => { if (c.reveal && show === null) setShow('orders'); }, [c.reveal, show]);
+  const finishReveal = () => { setShow(null); setConf(null); setC((p) => ({ ...p, reveal: null })); };
   useEffect(() => {
-    if (show === 'orders') { const t = setTimeout(() => setShow('move'), 3500); return () => clearTimeout(t); }
-    if (show === 'move') { const t = setTimeout(() => { setShow(null); setC((p) => ({ ...p, reveal: null })); }, 1300); return () => clearTimeout(t); }
-  }, [show]);
+    if (show === 'orders') { const t = setTimeout(() => setShow('advance'), 3500); return () => clearTimeout(t); }
+    if (show === 'advance') { const t = setTimeout(() => setShow('settle'), 1000); return () => clearTimeout(t); }
+    if (show === 'settle') {
+      const t = setTimeout(() => { if (c.conflicts?.length) { setConf(0); setShow('conflicts'); } else finishReveal(); }, 1100);
+      return () => clearTimeout(t);
+    }
+  }, [show]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!show && !c.reveal && c.phase === 'orders' && !ready && shownRound.current !== c.round) { shownRound.current = c.round; setBanner(c.round); }
   }, [show, c.reveal, c.phase, c.round, ready]);
+  const explained: Explanation[] = (c.conflicts ?? []).map(explain);
+  const card = conf !== null ? explained[conf] ?? null : null;
+  useLayoutEffect(() => {
+    const place = () => {
+      const svg = svgRef.current, box = mapBox.current;
+      if (!card || !svg || !box) { setCardPos(null); return; }
+      const m = svg.getScreenCTM();
+      if (!m) return;
+      const [x, y] = provCenter(card.prov);
+      const pt = new DOMPoint(x, y).matrixTransform(m);
+      const r = box.getBoundingClientRect();
+      setCardPos({ x: pt.x - r.left, y: pt.y - r.top, w: r.width, h: r.height });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [card?.prov, city]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (banner !== null) { const t = setTimeout(() => setBanner(null), 2600); return () => clearTimeout(t); } }, [banner]);
 
   const h = c.current;
@@ -117,7 +149,7 @@ export default function Campaign() {
   function restart() {
     if (!confirm('Kampagne neu beginnen? Der aktuelle Stand geht verloren.')) return;
     shownRound.current = 0;
-    setC(newCampaign()); setDraft([]); setReady(false); setSel(null); setArmySel(null); setCity(null); setBattle(null); setShow(null);
+    setC(newCampaign()); setDraft([]); setReady(false); setSel(null); setArmySel(null); setCity(null); setBattle(null); setShow(null); setConf(null);
   }
   function takeBattle() {
     if (!battle) return;
@@ -149,7 +181,7 @@ export default function Campaign() {
 
   const cityOrder = (prov: string) => draft.findIndex((o) => (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') && o.prov === prov);
   const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(o), 0);
-  const phaseText = show ? 'Befehle werden aufgedeckt' : c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
+  const phaseText = show === 'conflicts' ? 'Konflikte der Runde' : show ? 'Befehle werden aufgedeckt' : c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
 
   const labels: Record<string, { text: string; tone: Tone }> = {};
   if (targeting) for (const t of targets) labels[t] = mode === 'move' ? movePreview(c, h, selArmy!.id, t, draft) : { text: `+${String(selArmy!.size / 2).replace('.', ',')} Stärke`, tone: 'plain' };
@@ -159,6 +191,11 @@ export default function Campaign() {
   const before = show === 'orders' && c.reveal ? c.reveal : null;
   const mapC = before ? { ...c, round: before.round, armies: before.armies, owner: before.owner, gold: before.gold ?? c.gold, battles: [] } : c;
   const mapOrders = show === 'orders' && c.reveal ? [...c.reveal.orders.R, ...c.reveal.orders.K] : giving ? draft : [];
+  const halfway: Record<string, [number, number]> = {};
+  if (show === 'advance') for (const e of explained) for (const t of e.turnedBack) {
+    const [x1, y1] = provCenter(t.from), [x2, y2] = provCenter(t.to);
+    halfway[t.army] = [x1 + (x2 - x1) * 0.55, y1 + (y2 - y1) * 0.55];
+  }
 
   const forage = selArmy ? LAND[PROV[selArmy.prov].land].forage : 0;
   const forageWhy = selArmy ? why({ kind: 'forage', army: selArmy.id }) : '';
@@ -199,9 +236,18 @@ export default function Campaign() {
           </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
+        <div ref={mapBox} style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
           <CampaignMap c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
-            onArmy={onArmy} selectedArmy={armySel} labels={labels} />
+            onArmy={onArmy} selectedArmy={armySel} labels={labels} svgRef={svgRef}
+            focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
+
+          {card && cardPos && conf !== null && (
+            <ConflictCard e={card} index={conf} count={explained.length} pos={cardPos}
+              onPrev={() => setConf(Math.max(0, conf - 1))}
+              onNext={() => (conf + 1 < explained.length ? setConf(conf + 1) : show === 'conflicts' ? finishReveal() : setConf(null))}
+              onClose={() => (show === 'conflicts' ? finishReveal() : setConf(null))}
+              finalLabel={show === 'conflicts' ? (c.phase === 'battles' ? 'Zu den Schlachten' : 'Weiter') : 'Schließen'} />
+          )}
 
           {giving && selArmy && selArmy.house === h && (
             <div role="dialog" aria-label={`Heer in ${PROV[selArmy.prov].n}`} className="card" style={{
@@ -230,15 +276,15 @@ export default function Campaign() {
             </div>
           )}
 
-          {show && c.reveal && (
+          {show && c.reveal && !(show === 'conflicts' && card) && (
             <div role="status" style={{
               position: 'absolute', top: 16, left: 0, right: 0, margin: '0 auto', width: 'max-content', maxWidth: 'calc(100% - 32px)', zIndex: 6,
               display: 'flex', gap: 14, alignItems: 'center', padding: '10px 18px', borderRadius: 10,
               background: 'color-mix(in srgb, var(--hull) 92%, transparent)', border: '1px solid var(--brass)', boxShadow: '0 10px 30px rgba(0,0,0,.4)',
             }}>
               <span style={{ fontFamily: 'var(--display)', fontSize: 18, color: 'var(--brass)' }}>Runde {c.reveal.round}</span>
-              <span>{show === 'orders' ? 'Die Befehle beider Häuser werden aufgedeckt.' : 'Die Heere ziehen …'}</span>
-              {show === 'orders' && <button type="button" onClick={() => setShow('move')}>Heere ziehen lassen</button>}
+              <span>{show === 'orders' ? 'Die Befehle beider Häuser werden aufgedeckt.' : show === 'conflicts' ? `${explained.length === 1 ? 'Ein Konflikt' : `${explained.length} Konflikte`} in dieser Runde.` : 'Die Heere ziehen …'}</span>
+              {show === 'orders' && <button type="button" onClick={() => setShow('advance')}>Heere ziehen lassen</button>}
             </div>
           )}
         </div>
@@ -273,11 +319,16 @@ export default function Campaign() {
           </div></div>
         )}
         {c.phase === 'over' && !show && (
-          <div className="overlay"><div className="dialog">
+          <div className="overlay" style={{ zIndex: 30 }}><div className="dialog" style={{ maxHeight: 'calc(100% - 32px)', overflowY: 'auto', width: 'min(520px, 100%)', maxWidth: 520 }}>
             <h2>{c.winner ? `${HOUSES[c.winner].n} gewinnt` : 'Unentschieden'}</h2>
             <p>{c.winReason}</p>
             <p>Punkte: Ravensmoor {score(c, 'R')} · Kerrow {score(c, 'K')}</p>
             <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => { shownRound.current = 0; setC(newCampaign()); setReady(false); }}>Neue Kampagne</button></div>
+            <div style={{ borderTop: '1px solid var(--rope)', marginTop: 16, paddingTop: 14, textAlign: 'left' }}>
+              <h3 style={{ fontFamily: 'var(--display)', fontWeight: 500, margin: '0 0 8px' }}>Wie war die Kampagne?</h3>
+              <FeedbackForm where="kampagne-ende" intro="Ein paar Sätze von dir helfen enorm: Was hat Spaß gemacht, was war zäh oder unklar, was fehlt?"
+                context={{ Runde: c.round, Sieger: c.winner ? HOUSES[c.winner].n : 'Unentschieden', Punkte: `Ravensmoor ${score(c, 'R')} : ${score(c, 'K')} Kerrow`, Grund: c.winReason ?? '' }} />
+            </div>
           </div></div>
         )}
       </div>
@@ -336,6 +387,18 @@ export default function Campaign() {
           </div>
         )}
 
+        {!show && explained.length > 0 && (
+          <div className="card stack" style={{ gap: 6 }}>
+            <div className="lbl">Konflikte der letzten Runde</div>
+            {explained.map((e, i) => (
+              <button key={i} type="button" onClick={() => setConf(i)} style={{ textAlign: 'left', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', flex: 'none', background: e.winner ? HOUSES[e.winner].color : 'var(--muted)' }} />
+                <span style={{ flex: 1 }}>{e.title}</span>
+                {e.ratio && <span className="rule" style={{ fontSize: 12 }}>{e.ratio.split(' · ')[0]}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="card stack" style={{ gap: 4 }}>
           <div className="lbl">Bericht</div>
           {before ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-14).map((l, i) => <span key={i} className="rule">{l}</span>)}
@@ -343,6 +406,44 @@ export default function Campaign() {
         <span className="rule" style={{ fontSize: 12 }}>Alle Begriffe und Regeln stehen im Feldbuch hinter dem goldenen ?.</span>
         <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>
       </aside>
+    </div>
+  );
+}
+
+function ConflictCard({ e, index, count, pos, onPrev, onNext, onClose, finalLabel }: {
+  e: Explanation; index: number; count: number; pos: { x: number; y: number; w: number; h: number };
+  onPrev: () => void; onNext: () => void; onClose: () => void; finalLabel: string;
+}) {
+  const W = 340;
+  const right = pos.x + 60 + W < pos.w - 12;
+  const left = right ? pos.x + 60 : Math.max(12, pos.x - 60 - W);
+  const top = Math.max(12, Math.min(pos.y - 90, pos.h - 450));
+  const last = index + 1 >= count;
+  return (
+    <div role="dialog" aria-label={e.title} className="card stack" style={{
+      position: 'absolute', left, top, width: W, zIndex: 7, gap: 10, background: 'var(--hull)', borderColor: '#F3D27A',
+      boxShadow: '0 14px 40px rgba(0,0,0,.5)',
+    }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+        <div className="stack" style={{ gap: 0 }}>
+          <span className="lbl">Konflikt {index + 1} von {count}</span>
+          <b style={{ fontFamily: 'var(--display)', fontSize: 18 }}>{e.title}</b>
+        </div>
+        <button type="button" className="ghost" aria-label="Schließen" onClick={onClose}>×</button>
+      </div>
+      {e.sides.map((s, i) => (
+        <div key={i} className="stack" style={{ gap: 2, paddingLeft: 10, borderLeft: `4px solid ${HOUSES[s.house].color}`, opacity: e.winner && e.winner !== s.house ? 0.75 : 1 }}>
+          <span style={{ fontSize: 13 }}>{s.label}{e.winner === s.house ? ' ✓' : ''}</span>
+          <span className="rule" style={{ fontSize: 12 }}>{s.formula}</span>
+          <b style={{ fontVariantNumeric: 'tabular-nums' }}>Stärke {num(s.total)}</b>
+        </div>
+      ))}
+      {e.ratio && <span className="chip" style={{ alignSelf: 'flex-start', fontSize: 12, padding: '3px 10px', borderRadius: 999, background: 'var(--hull-2)', border: '1px solid var(--rope)' }}>{e.ratio} · klarer Sieg ab 1,5-fach</span>}
+      <p style={{ margin: 0, lineHeight: 1.45 }}>{e.result}</p>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <button type="button" className={index === 0 ? 'ghost muted' : 'ghost'} disabled={index === 0} onClick={onPrev}>‹ Zurück</button>
+        <button type="button" className="primary" onClick={onNext}>{last ? finalLabel : 'Nächster Konflikt ›'}</button>
+      </div>
     </div>
   );
 }

@@ -16,14 +16,14 @@ h1, h2, h3 { text-wrap: balance; }
 
 button { font: inherit; font-size: 13px; color: var(--parchment); background: var(--hull-2); border: 1px solid var(--rope); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
 button:hover { border-color: var(--brass); }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 button:disabled { opacity: .55; cursor: default; }
 button.on { background: color-mix(in srgb, var(--brass) 22%, var(--hull-2)); border-color: var(--brass); }
 button.primary { background: var(--brass); color: #1b1607; border-color: var(--brass); font-weight: 600; }
 button.muted { color: var(--muted); cursor: default; }
 button.muted:hover { border-color: var(--rope); }
 button.ghost { background: transparent; }
-input, select { font: inherit; color: var(--parchment); background: var(--sea); border: 1px solid var(--rope); border-radius: 6px; padding: 9px 11px; width: 100%; }
+input, select, textarea { font: inherit; color: var(--parchment); background: var(--sea); border: 1px solid var(--rope); border-radius: 6px; padding: 9px 11px; width: 100%; }
 
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
@@ -100,3 +100,6 @@ label.opt input { width: auto; margin-top: 3px; accent-color: var(--brass); }
 
 @keyframes dm-round-banner { 0% { opacity: 0; transform: scale(.94); } 14% { opacity: 1; transform: scale(1); } 82% { opacity: 1; } 100% { opacity: 0; } }
 .round-banner { animation: dm-round-banner 2.6s ease forwards; background: radial-gradient(ellipse at center, rgba(13,22,32,.82) 0%, rgba(13,22,32,.55) 60%, rgba(13,22,32,.3) 100%); }
+@keyframes dm-focus { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.focus-ring { animation: dm-focus 1.6s ease-in-out infinite; }
+textarea { resize: vertical; min-height: 52px; line-height: 1.4; }
