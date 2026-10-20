@@ -34,12 +34,28 @@ test('Befehlsprüfung: nur Nachbarn, Gold für Rekruten, drei Befehle', () => {
   assert.match(orderProblem(c, 'R', { kind: 'forage', army: 'a2' }, [{ kind: 'forage', army: 'a1' }, { kind: 'recruit', prov: 'aldfurt' }, { kind: 'move', army: 'a2', to: 'westmark' }]), /3 Befehle/);
 });
 
-test('Wettlauf ins selbe Feld ohne klare Übermacht: beide kehren um', () => {
+test('Knapper Wettlauf ins selbe Feld: Feldschlacht, das stärkere Heer führt die Offiziere', () => {
+  let c = newCampaign();
+  const k = c.armies.find((a) => a.id === 'a3')!; k.prov = 'sturmgrat'; k.size = 8;
+  c = seal(c, [{ kind: 'move', army: 'a1', to: 'mittelland' }], [{ kind: 'move', army: 'a3', to: 'mittelland' }]);
+  assert.equal(c.phase, 'battles');
+  const b = c.battles[0];
+  assert.equal(b.field, true);
+  assert.equal(b.attacker, 'a1');
+  assert.equal(b.defFrom, 'sturmgrat');
+  assert.match(c.report.join(' '), /Feldschlacht/);
+  // Kerrow wins the field battle: it takes Mittelland, Ravensmoor turns back to Aldfurt
+  c = applyBattle(c, b.id, { attackerWon: false, attacker: { size: 6, spec: { CAP: 1, KAP: 1, KAN: 0, MAR: 0 } }, defender: { size: 5 }, retreat: false, how: 'ausgewürfelt' });
+  assert.equal(armyAt(c, 'mittelland')?.id, 'a3');
+  assert.equal(armyAt(c, 'aldfurt')?.id, 'a1');
+  assert.equal(c.owner.mittelland, 'K');
+});
+
+test('Gleich starker Wettlauf: der Würfel bestimmt die Offiziere', () => {
   let c = newCampaign();
   c.armies.find((a) => a.id === 'a3')!.prov = 'sturmgrat';
-  c = seal(c, [{ kind: 'move', army: 'a1', to: 'mittelland' }], [{ kind: 'move', army: 'a3', to: 'mittelland' }]);
-  assert.equal(armyAt(c, 'mittelland'), null);
-  assert.match(c.report.join(' '), /Patt/);
+  c = sealOrders(sealOrders(c, 'R', [{ kind: 'move', army: 'a1', to: 'mittelland' }], () => 0.9), 'K', [{ kind: 'move', army: 'a3', to: 'mittelland' }], () => 0.9);
+  assert.equal(c.battles[0].attacker, 'a3');
 });
 
 test('Klare Übermacht mit Unterstützung gewinnt automatisch, knapp führt zur Schlacht', () => {

@@ -397,7 +397,8 @@ export class Campaign3D {
 
   private armyPos(a: CArmy, v: MapView): THREE.Vector3 {
     const battle = v.c.battles.find((b) => b.attacker === a.id);
-    const prov = battle ? battle.prov : a.prov;
+    const field = v.c.battles.find((b) => b.field && b.defender === a.id);
+    const prov = battle ? battle.prov : field ? field.prov : a.prov;
     const o = v.posOverride?.[a.id];
     const [x, z] = o ? toW(...o) : toW(...provCenter(prov));
     const h = o ? 0.6 : provHeight(prov);
@@ -409,7 +410,7 @@ export class Campaign3D {
     for (const o of v.orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
     const seen = new Set<string>();
     for (const a of v.c.armies) {
-      if (a.prov.startsWith('@') && !v.c.battles.some((b) => b.attacker === a.id)) continue;
+      if (a.prov.startsWith('@') && !v.c.battles.some((b) => b.attacker === a.id || (b.field && b.defender === a.id))) continue;
       seen.add(a.id);
       const spec = a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR;
       const key = [a.house, a.size, spec, marks[a.id] ?? '', v.selectedArmy === a.id].join('|');
@@ -497,8 +498,9 @@ export class Campaign3D {
   private loop = (now: number) => {
     const o = this.orbit;
     const before = o.theta + o.phi + o.rad + o.look.x + o.look.z + o.look.y;
-    o.theta += (o.tTheta - o.theta) * 0.08; o.phi += (o.tPhi - o.phi) * 0.08; o.rad += (o.tRad - o.rad) * 0.08;
-    o.look.lerp(o.tLook, 0.08);
+    const ease = (v: number, t: number) => (Math.abs(t - v) < 1e-3 ? t : v + (t - v) * 0.08);
+    o.theta = ease(o.theta, o.tTheta); o.phi = ease(o.phi, o.tPhi); o.rad = ease(o.rad, o.tRad);
+    if (o.look.distanceTo(o.tLook) < 1e-3) o.look.copy(o.tLook); else o.look.lerp(o.tLook, 0.08);
     this.camera.position.set(o.look.x + o.rad * Math.sin(o.phi) * Math.sin(o.theta), o.look.y + o.rad * Math.cos(o.phi), o.look.z + o.rad * Math.sin(o.phi) * Math.cos(o.theta));
     this.camera.lookAt(o.look);
     const moved = Math.abs(o.theta + o.phi + o.rad + o.look.x + o.look.z + o.look.y - before) > 1e-4;
