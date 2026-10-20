@@ -120,3 +120,70 @@ export const hexAt = at;
 
 /** Center of a province for labels and tokens: the seed hex. */
 export const provCenter = (id: string) => center(...PROV[id].seed);
+
+// ---- Hex fields as the unit of movement and ownership ----
+
+/** Key of a hex, "c,r". */
+export type HexKey = string;
+export const hk = (c: number, r: number): HexKey => `${c},${r}`;
+export const parseHex = (k: HexKey): [number, number] => k.split(',').map(Number) as [number, number];
+export const LAND_HEXES: Hex[] = HEXES.filter((h) => h.land && h.prov);
+export const HEX: Record<HexKey, Hex> = Object.fromEntries(LAND_HEXES.map((h) => [hk(h.c, h.r), h]));
+export const isLand = (k: HexKey) => !!HEX[k];
+export const hexCenter = (k: HexKey) => center(...parseHex(k));
+export const hexProv = (k: HexKey) => HEX[k]?.prov ?? null;
+export const hexLand = (k: HexKey) => HEX[k]!.land!;
+/** Land neighbours of a hex. */
+export const HEX_ADJ: Record<HexKey, HexKey[]> = Object.fromEntries(
+  Object.keys(HEX).map((k) => [k, neighbours(...parseHex(k)).map(([c, r]) => hk(c, r)).filter(isLand)]),
+);
+export const hexDist = (a: HexKey, b: HexKey) => dist(parseHex(a), parseHex(b));
+/** The hex of a province's city (its seed hex). */
+export const cityHex = (prov: string) => hk(...PROV[prov].seed);
+export const CITY_HEX: Record<HexKey, string> = Object.fromEntries(PROVINCES.filter((p) => p.city).map((p) => [cityHex(p.id), p.id]));
+export const provHexes = (prov: string) => Object.keys(HEX).filter((k) => HEX[k].prov === prov);
+/** Name of a hex for texts: its province, plus "Stadt" for a city hex. */
+export const hexName = (k: HexKey) => (CITY_HEX[k] ? `Stadt ${PROV[CITY_HEX[k]].n}` : PROV[hexProv(k)!].n);
+
+/** Movement cost of entering a hex: mountains and swamps cost double. */
+export const stepCost = (k: HexKey) => (hexLand(k) === 'G' || hexLand(k) === 'S' ? 2 : 1);
+
+/**
+ * Cheapest costs from a hex within a budget (Dijkstra). `stop` hexes may be entered but not left (e.g. enemy armies),
+ * `block` hexes may not be entered at all.
+ */
+export function reachable(from: HexKey, budget: number, stop: Set<HexKey> = new Set(), block: Set<HexKey> = new Set()) {
+  const cost: Record<HexKey, number> = { [from]: 0 };
+  const prev: Record<HexKey, HexKey | null> = { [from]: null };
+  const open: HexKey[] = [from];
+  while (open.length) {
+    open.sort((a, b) => cost[a] - cost[b]);
+    const k = open.shift()!;
+    if (k !== from && stop.has(k)) continue;
+    for (const n of HEX_ADJ[k]) {
+      if (block.has(n)) continue;
+      const nc = cost[k] + stepCost(n);
+      if (nc > budget || (n in cost && cost[n] <= nc)) continue;
+      cost[n] = nc; prev[n] = k; open.push(n);
+    }
+  }
+  return { cost, prev };
+}
+/** Path from `from` to `to` (without `from`) using a `reachable` result. */
+export function pathTo(prev: Record<HexKey, HexKey | null>, to: HexKey): HexKey[] {
+  const out: HexKey[] = [];
+  for (let k: HexKey | null = to; k && prev[k] !== undefined && prev[k] !== null; k = prev[k]!) out.unshift(k);
+  return out;
+}
+/** Shortest walking path over land ignoring costs (for traders). */
+export function walkPath(from: HexKey, to: HexKey): HexKey[] | null {
+  const prev: Record<HexKey, HexKey | null> = { [from]: null };
+  const q = [from];
+  while (q.length) {
+    const k = q.shift()!;
+    if (k === to) break;
+    for (const n of HEX_ADJ[k]) if (!(n in prev)) { prev[n] = k; q.push(n); }
+  }
+  if (!(to in prev)) return null;
+  return pathTo(prev, to);
+}
