@@ -115,9 +115,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const issue = toIssue(x, { userAgent: request.headers.get('user-agent') ?? '' });
+  const gh = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'deckmate-feedback' };
   const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'content-type': 'application/json', 'user-agent': 'deckmate-feedback' },
+    headers: { ...gh, 'content-type': 'application/json' },
     body: JSON.stringify(issue),
   });
   if (!res.ok) {
@@ -128,6 +129,12 @@ export async function POST(request: Request): Promise<Response> {
       : '';
     return json(502, { error: `Das Feedback konnte gerade nicht gespeichert werden (GitHub ${res.status}).${hint ? ` ${hint}` : ' Bitte später noch einmal versuchen.'}` });
   }
-  const created = (await res.json()) as { number?: number };
+  const created = (await res.json()) as { number?: number; labels?: { name: string }[] };
+  // GitHub silently drops labels on create unless the token has push access; with "Issues" alone they can be added afterwards.
+  if (created.number && !created.labels?.some((l) => l.name === 'feedback')) {
+    await fetch(`https://api.github.com/repos/${repo}/issues/${created.number}/labels`, {
+      method: 'POST', headers: { ...gh, 'content-type': 'application/json' }, body: JSON.stringify({ labels: issue.labels }),
+    }).catch((e) => console.error('[feedback] Label', e));
+  }
   return json(201, { ok: true, number: created.number });
 }
