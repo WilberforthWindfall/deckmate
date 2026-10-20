@@ -7,6 +7,7 @@ import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
 import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
+import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
 import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
   BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, movePreview, orderProblem, score, sealOrders,
@@ -57,6 +58,12 @@ export default function Campaign() {
   const [cardPos, setCardPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const mapBox = useRef<HTMLDivElement>(null);
+  /** 2D (SVG) or 3D map; remembered per browser. */
+  const [view3d, setView3d] = useState(() => { try { return localStorage.getItem('deckmate.kampagne.ansicht') === '3d'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('deckmate.kampagne.ansicht', view3d ? '3d' : '2d'); } catch { /* ignore */ } }, [view3d]);
+  /** Screen position (client coordinates) of a province, from whichever map is shown. */
+  const projector = useRef<((prov: string) => [number, number] | null) | null>(null);
+  const [camTick, setCamTick] = useState(0);
   const [banner, setBanner] = useState<number | null>(null);
   const shownRound = useRef(0);
   const stage = useRef<HTMLDivElement>(null);
@@ -84,19 +91,22 @@ export default function Campaign() {
   const card = conf !== null ? explained[conf] ?? null : null;
   useLayoutEffect(() => {
     const place = () => {
-      const svg = svgRef.current, box = mapBox.current;
-      if (!card || !svg || !box) { setCardPos(null); return; }
-      const m = svg.getScreenCTM();
-      if (!m) return;
-      const [x, y] = provCenter(card.prov);
-      const pt = new DOMPoint(x, y).matrixTransform(m);
+      const box = mapBox.current;
+      if (!card || !box) { setCardPos(null); return; }
+      let pt: [number, number] | null = null;
+      if (view3d) pt = projector.current?.(card.prov) ?? null;
+      else {
+        const m = svgRef.current?.getScreenCTM();
+        if (m) { const [x, y] = provCenter(card.prov); const q = new DOMPoint(x, y).matrixTransform(m); pt = [q.x, q.y]; }
+      }
+      if (!pt) return;
       const r = box.getBoundingClientRect();
-      setCardPos({ x: pt.x - r.left, y: pt.y - r.top, w: r.width, h: r.height });
+      setCardPos({ x: pt[0] - r.left, y: pt[1] - r.top, w: r.width, h: r.height });
     };
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [card?.prov, city]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [card?.prov, city, view3d, camTick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (banner !== null) { const t = setTimeout(() => setBanner(null), 2600); return () => clearTimeout(t); } }, [banner]);
 
   const h = c.current;
@@ -237,9 +247,23 @@ export default function Campaign() {
         </div>
 
         <div ref={mapBox} style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
-          <CampaignMap c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
-            onArmy={onArmy} selectedArmy={armySel} labels={labels} svgRef={svgRef}
-            focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
+          {view3d ? (
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <CampaignMap3D c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
+                onArmy={onArmy} selectedArmy={armySel} labels={labels} house={h} projector={projector} onCamera={() => card && setCamTick((t) => t + 1)}
+                focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
+            </div>
+          ) : (
+            <CampaignMap c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
+              onArmy={onArmy} selectedArmy={armySel} labels={labels} svgRef={svgRef}
+              focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
+          )}
+          <div role="group" aria-label="Kartenansicht" className="row" style={{ position: 'absolute', left: (city ? 330 : 0) + 12, top: 12, gap: 0, zIndex: 3 }}>
+            {[false, true].map((d) => (
+              <button key={String(d)} type="button" className={view3d === d ? 'on' : ''} aria-pressed={view3d === d} onClick={() => setView3d(d)}
+                style={{ borderRadius: d ? '0 6px 6px 0' : '6px 0 0 6px', marginLeft: d ? -1 : 0 }}>{d ? '3D' : '2D'}</button>
+            ))}
+          </div>
 
           {card && cardPos && conf !== null && (
             <ConflictCard e={card} index={conf} count={explained.length} pos={cardPos}
