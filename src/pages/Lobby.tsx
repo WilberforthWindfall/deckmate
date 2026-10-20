@@ -158,7 +158,7 @@ export default function Lobby() {
               <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.goals} onChange={(e) => setCOpts({ ...cOpts, goals: e.target.checked })} /><span>Geheime Ziele</span></label>
               <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.experience} onChange={(e) => setCOpts({ ...cOpts, experience: e.target.checked })} /><span>Erfahrung der Heere</span></label>
               <button type="submit" className="primary" disabled={busy}>Kampagne anlegen</button>
-              <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand aus der Lobby beitritt. <Link to="/kampagne">An einem Gerät spielen</Link></p>
+              <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand aus der Lobby beitritt. <Link to="/kampagne">An einem Gerät oder gegen den Computer spielen</Link></p>
             </form>
             <div className="card stack">
               <h2>Feedback an die Werft</h2>

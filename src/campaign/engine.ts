@@ -92,8 +92,12 @@ export type Goal =
   | { kind: 'veteran' };
 /** Points for a secret goal met at the end of the campaign. */
 export const GOAL_POINTS = 4;
-export interface CampaignOptions { maxRounds: number; goals: boolean; experience: boolean }
-export const DEFAULT_OPTIONS: CampaignOptions = { maxRounds: 10, goals: true, experience: true };
+export interface CampaignOptions {
+  maxRounds: number; goals: boolean; experience: boolean;
+  /** One device against the computer: the house it plays and how well. */
+  ai?: { house: House; level: 'leicht' | 'normal' } | null;
+}
+export const DEFAULT_OPTIONS: CampaignOptions = { maxRounds: 10, goals: true, experience: true, ai: null };
 /** A specialist travelling without an army. */
 export interface Agent { id: string; house: House; spec: SpecKey; hex: HexKey }
 /** A trader walking from a market to an own city, bringing gold on arrival. */
@@ -386,7 +390,7 @@ export function newCampaign(options: Partial<CampaignOptions> = {}, rng: Rng = M
     v: 2, round: 1, maxRounds: opts.maxRounds, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner, levels: {}, research: { R: {}, K: {} },
     gold: { R: 4, K: 4 }, armies, agents: [], traders: [],
     orders: { R: [], K: [] }, sealed: { R: false, K: false }, battles: [],
-    report: ['Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
+    report: [opts.ai ? `Runde 1 beginnt. Du führst ${HOUSES[OTHER[opts.ai.house]].n}, der Computer ${HOUSES[opts.ai.house].n}.` : 'Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
     opts, goals: opts.goals ? drawGoals(rng, opts.experience) : undefined,
   };
   deriveOwners(c);
