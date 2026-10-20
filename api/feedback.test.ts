@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POST, toIssue, validate } from './feedback.ts';
+import { POST, diagnose, toIssue, validate } from './feedback.ts';
 
 const req = (body: unknown, ip = '1.2.3.4') => new Request('http://x/api/feedback', { method: 'POST', body: JSON.stringify(body), headers: { 'x-forwarded-for': ip, 'user-agent': 'Test' } });
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
@@ -40,4 +40,15 @@ test('POST: ohne Token klare Meldung, mit Token wird bei GitHub angelegt', async
     for (let i = 0; i < 5; i++) await POST(req({ rating: 5 }, '9.9.9.3'));
     assert.equal((await POST(req({ rating: 5 }, '9.9.9.3'))).status, 429);
   } finally { globalThis.fetch = orig; delete env.GITHUB_TOKEN; }
+});
+
+test('Selbstauskunft: zeigt nur, ob der Token da ist, nie den Wert', () => {
+  const d = diagnose({ GITHUB_TOKEN: 'github_pat_geheim', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'abcdef123', GITHUB_TOKEN_X: '1', PATH: '/bin' });
+  assert.equal(d.configured, true);
+  assert.equal(d.tokenLooksLike, 'fein granularer Token');
+  assert.equal(d.environment, 'production');
+  assert.equal(d.commit, 'abcdef1');
+  assert.deepEqual(d.similarNames, ['GITHUB_TOKEN', 'GITHUB_TOKEN_X']);
+  assert.ok(!JSON.stringify(d).includes('geheim'));
+  assert.equal(diagnose({ 'GITHUB_TOKEN ': 'x' }).configured, false);
 });
