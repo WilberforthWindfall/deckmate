@@ -1,37 +1,36 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
-  BUILDINGS, BUILDING_KEYS, SPEC_NAME, buildingFor, hasBuilding, incomeOf, recruitSize, strength,
+  BUILDINGS, SPEC_NAME, agentBonus, buildingsNear, engagedIds, income, rangeOf, recruitSize, specSum, strength,
   type CArmy, type Campaign, type Order, type SpecKey,
 } from './engine.ts';
-import { HOUSES, LAND, PROV, PROVINCES, type House } from './map.ts';
+import { CITY_HEX, HOUSES, LAND, PROV, PROVINCES, cityHex, hexLand, hexName, type House } from './map.ts';
+import { Badge } from './Panels.tsx';
+import { BUILDING_ICON } from './CampaignMap.tsx';
 
-// Left-hand overview while nothing is selected: the armies and cities of a house with their bonuses and states.
+// Left-hand overview while nothing is selected: armies, agents, traders and cities of a house with their bonuses and states.
 
 const SPECS = Object.keys(SPEC_NAME) as SpecKey[];
 const pct = (x: number) => `+${Math.round((x - 1) * 100)} %`;
 const num = (x: number) => String(Math.round(x * 10) / 10).replace('.', ',');
-const ORDER_TEXT: Record<string, string> = { move: 'zieht', support: 'unterstützt', forage: 'fouragiert', recruit: 'rekrutiert', train: 'bildet aus', build: 'baut' };
+const ORDER_TEXT: Record<string, string> = { move: 'zieht', support: 'unterstützt', forage: 'fouragiert', agent: 'zieht', recruit: 'rekrutiert', train: 'bildet aus', build: 'baut' };
 
-function Badge({ children, tone = 'plain', title }: { children: ReactNode; tone?: 'plain' | 'good' | 'bad' | 'gold'; title?: string }) {
-  const bg = { plain: 'var(--hull-2)', good: 'color-mix(in srgb, var(--ok) 18%, var(--hull-2))', bad: 'color-mix(in srgb, var(--hit) 20%, var(--hull-2))', gold: 'color-mix(in srgb, var(--brass) 20%, var(--hull-2))' }[tone];
-  const bd = { plain: 'var(--rope)', good: 'color-mix(in srgb, var(--ok) 55%, transparent)', bad: 'color-mix(in srgb, var(--hit) 60%, transparent)', gold: 'color-mix(in srgb, var(--brass) 60%, transparent)' }[tone];
-  return <span title={title} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: bg, border: `1px solid ${bd}`, whiteSpace: 'nowrap' }}>{children}</span>;
-}
-
-export default function Overview({ c, house, giving, draft, onArmy, onCity }: {
-  c: Campaign; house: House; giving: boolean; draft: Order[]; onArmy: (id: string) => void; onCity: (prov: string) => void;
+export default function Overview({ c, house, giving, draft, onArmy, onAgent, onCity }: {
+  c: Campaign; house: House; giving: boolean; draft: Order[];
+  onArmy: (id: string) => void; onAgent: (id: string) => void; onCity: (prov: string) => void;
 }) {
   const [tab, setTab] = useState<House | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const t = tab ?? house;
   const own = giving && t === house;
-  const armies = c.armies.filter((a) => a.house === t && !a.prov.startsWith('@'));
-  const waiting = c.armies.filter((a) => a.house === t && a.prov.startsWith('@'));
-  const cities = PROVINCES.filter((p) => p.city && c.owner[p.id] === t);
-  const free = PROVINCES.filter((p) => p.city && !c.owner[p.id]);
-  const orderFor = (a: CArmy) => (own ? draft.find((o) => 'army' in o && o.army === a.id) : undefined);
-  const cityOrder = (prov: string) => (own ? draft.find((o) => (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') && o.prov === prov) : undefined);
-  const provs = PROVINCES.filter((p) => c.owner[p.id] === t);
+  const engaged = engagedIds(c);
+  const armies = c.armies.filter((a) => a.house === t);
+  const agents = c.agents.filter((a) => a.house === t);
+  const traders = c.traders.filter((x) => x.house === t);
+  const cities = PROVINCES.filter((p) => p.city && c.hexOwner[cityHex(p.id)] === t);
+  const free = PROVINCES.filter((p) => p.city && !c.hexOwner[cityHex(p.id)]);
+  const orderFor = (id: string) => (own ? draft.find((o) => ('army' in o && o.army === id) || (o.kind === 'agent' && o.agent === id)) : undefined);
+  const inc = income(c, t);
+  const fields = Object.values(c.hexOwner).filter((x) => x === t).length;
 
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -48,66 +47,49 @@ export default function Overview({ c, house, giving, draft, onArmy, onCity }: {
         ))}
       </div>
       <div className="row" style={{ gap: 6 }}>
-        <Badge tone="gold" title="Gold am Ende der Runde: 1 je Provinz, +2 je Stadt, +2 je Markt">Einkommen +{incomeOf(c, t)} Gold</Badge>
-        <Badge>{provs.length} Provinzen</Badge>
+        <Badge tone="gold" title={`Am Rundenende: ${inc.provinces} Provinzen, Städte +${inc.cities}, Märkte +${inc.markets}, Kollekte +${inc.agents}; Händler bringen extra`}>Einkommen +{inc.total} Gold</Badge>
+        <Badge>{fields} Felder</Badge>
         <Badge>{cities.length} Städte</Badge>
       </div>
 
       <section className="stack" style={{ gap: 6 }}>
         <span className="lbl">Heere</span>
-        {armies.length === 0 && waiting.length === 0 && <span className="rule">Keine Heere.</span>}
-        {[...armies, ...waiting].map((a) => {
-          const at = a.prov.startsWith('@') ? a.prov.slice(1) : a.prov;
-          const p = PROV[at];
-          const def = strength(c, a, at, [], true);
-          const specN = SPECS.reduce((n, k) => n + a.spec[k], 0);
-          const o = orderFor(a);
-          const fever = p.land === 'S' && !a.prov.startsWith('@');
-          const hidden = t !== house && c.phase !== 'over';
-          return (
-            <div key={a.id} style={{ position: 'relative' }} onMouseEnter={() => setHover(a.id)} onMouseLeave={() => setHover(null)}>
-              <button type="button" onClick={() => onArmy(a.id)} onFocus={() => setHover(a.id)} onBlur={() => setHover(null)}
-                style={{ width: '100%', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px' }}>
-                <span style={{ minWidth: 38, textAlign: 'center', padding: '3px 0', borderRadius: 6, background: HOUSES[a.house].color, color: '#FFF8F2', fontWeight: 700 }}>⚑ {a.size}</span>
-                <span className="stack" style={{ gap: 3, flex: 1, minWidth: 0 }}>
-                  <span>{a.prov.startsWith('@') ? `vor ${p.n}` : p.n}</span>
-                  <span className="row" style={{ gap: 4 }}>
-                    {specN > 0 && <Badge tone="gold">{specN} Spezialist{specN === 1 ? '' : 'en'}</Badge>}
-                    {a.prov.startsWith('@') && <Badge tone="bad">wartet auf Schlacht</Badge>}
-                    {fever && <Badge tone="bad" title="Im Sumpf verliert das Heer am Rundenende 1 Figur">Fieber −1</Badge>}
-                    {!a.prov.startsWith('@') && def > a.size && <Badge tone="good" title="Verteidigung durch Gelände oder Stadtmauer">Verteidigung {pct(def / a.size)}</Badge>}
-                    {o && <Badge tone="gold">{ORDER_TEXT[o.kind]}</Badge>}
-                    {own && !o && !a.prov.startsWith('@') && <Badge>ohne Befehl</Badge>}
-                  </span>
+        {armies.length === 0 && <span className="rule">Keine Heere.</span>}
+        {armies.map((a) => <ArmyRow key={a.id} c={c} a={a} own={own} hidden={t !== house && c.phase !== 'over'} engaged={engaged.has(a.id)} order={orderFor(a.id)}
+          open={hover === a.id} setOpen={(v) => setHover(v ? a.id : null)} onClick={() => onArmy(a.id)} />)}
+      </section>
+
+      {agents.length > 0 && (
+        <section className="stack" style={{ gap: 6 }}>
+          <span className="lbl">Einzelgänger</span>
+          {agents.map((g) => {
+            const b = agentBonus(c, g);
+            const o = orderFor(g.id);
+            return (
+              <button key={g.id} type="button" onClick={() => onAgent(g.id)} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px' }}>
+                <span className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}><b>{SPEC_NAME[g.spec]}</b><span className="rule" style={{ fontSize: 12 }}>bei {hexName(g.hex)}</span></span>
+                <span className="row" style={{ gap: 4 }}>
+                  {b ? <Badge tone="good">{b.text}</Badge> : <Badge title="Auf einem passenden eigenen Gebäude gibt er einen Bonus">ohne Bonus</Badge>}
+                  {o && <Badge tone="gold">{ORDER_TEXT[o.kind]}</Badge>}
                 </span>
               </button>
-              {hover === a.id && (
-                <div role="tooltip" className="card stack" style={{ marginTop: 4, gap: 3, padding: '8px 10px', background: 'var(--hull)', borderColor: 'var(--brass)', fontSize: 13 }}>
-                  <b>Heer {a.prov.startsWith('@') ? `vor ${p.n}` : `in ${p.n}`}</b>
-                  <span>{a.size} Figuren</span>
-                  {hidden
-                    ? <span className="rule">{specN ? `${specN} Spezialisten, Art unbekannt` : 'Keine Spezialisten erkennbar'}</span>
-                    : SPECS.filter((k) => a.spec[k]).length
-                      ? SPECS.filter((k) => a.spec[k]).map((k) => <span key={k} className="rule">{a.spec[k]} × {SPEC_NAME[k]}</span>)
-                      : <span className="rule">Keine Spezialisten</span>}
-                  {!hidden && specN > 0 && <span className="rule">{a.size - specN} einfache Soldaten</span>}
-                  <span className="rule" style={{ borderTop: '1px solid var(--rope)', paddingTop: 4, marginTop: 2 }}>
-                    Angriff {num(a.size)} · Verteidigung hier {num(def)} ({LAND[p.land].n}{hasBuilding(c, at, 'mauer') ? ', Mauer' : ''})
-                  </span>
-                  <span className="rule">Fourage hier: +{LAND[p.land].forage}</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </section>
+            );
+          })}
+        </section>
+      )}
+
+      {traders.length > 0 && (
+        <section className="stack" style={{ gap: 6 }}>
+          <span className="lbl">Händler unterwegs</span>
+          {traders.map((x) => <span key={x.id} className="rule" style={{ fontSize: 12 }}>bei {hexName(x.hex)} → {PROV[CITY_HEX[x.to]].n} · bringt {x.gold} Gold</span>)}
+        </section>
+      )}
 
       <section className="stack" style={{ gap: 6 }}>
         <span className="lbl">Städte</span>
         {cities.length === 0 && <span className="rule">Keine Städte.</span>}
-        {cities.map((p) => <CityRow key={p.id} c={c} prov={p.id} order={cityOrder(p.id)} onClick={() => onCity(p.id)} />)}
+        {cities.map((p) => <CityRow key={p.id} c={c} prov={p.id} onClick={() => onCity(p.id)} />)}
       </section>
-
       {free.length > 0 && (
         <section className="stack" style={{ gap: 6 }}>
           <span className="lbl">Freie Städte</span>
@@ -118,36 +100,70 @@ export default function Overview({ c, house, giving, draft, onArmy, onCity }: {
   );
 }
 
-function CityRow({ c, prov, order, onClick }: { c: Campaign; prov: string; order?: Order; onClick: () => void }) {
+function ArmyRow({ c, a, own, hidden, engaged, order, open, setOpen, onClick }: {
+  c: Campaign; a: CArmy; own: boolean; hidden: boolean; engaged: boolean; order?: Order; open: boolean; setOpen: (v: boolean) => void; onClick: () => void;
+}) {
+  const def = strength(c, a, a.hex, [], true);
+  const n = specSum(a.spec);
+  const fever = hexLand(a.hex) === 'S';
+  return (
+    <div onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" onClick={onClick} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+        style={{ width: '100%', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px' }}>
+        <span style={{ minWidth: 38, textAlign: 'center', padding: '3px 0', borderRadius: 6, background: HOUSES[a.house].color, color: '#FFF8F2', fontWeight: 700 }}>⚑ {a.size}</span>
+        <span className="stack" style={{ gap: 3, flex: 1, minWidth: 0 }}>
+          <span>{hexName(a.hex)}</span>
+          <span className="row" style={{ gap: 4 }}>
+            <Badge title="Bewegungspunkte pro Runde; Gebirge und Sumpf kosten 2">Reichweite {rangeOf(a)}</Badge>
+            {n > 0 ? <Badge tone="gold">{n} Spezialist{n === 1 ? '' : 'en'}</Badge> : <Badge tone="bad" title="Ohne Spezialisten fehlt Disziplin: 1 Bewegungspunkt weniger">ohne Disziplin</Badge>}
+            {engaged && <Badge tone="bad">wartet auf Schlacht</Badge>}
+            {fever && <Badge tone="bad" title="Im Sumpf verliert das Heer am Rundenende 1 Figur">Fieber −1</Badge>}
+            {def > a.size && <Badge tone="good" title="Verteidigung durch Gelände oder Stadtmauer">Verteidigung {pct(def / a.size)}</Badge>}
+            {order && <Badge tone="gold">{ORDER_TEXT[order.kind]}</Badge>}
+            {own && !order && !engaged && <Badge>ohne Befehl</Badge>}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div role="tooltip" className="card stack" style={{ marginTop: 4, gap: 3, padding: '8px 10px', background: 'var(--hull)', borderColor: 'var(--brass)', fontSize: 13 }}>
+          <b>Heer bei {hexName(a.hex)}</b>
+          <span>{a.size} Figuren</span>
+          {hidden
+            ? <span className="rule">{n ? `${n} Spezialisten, Art unbekannt` : 'Keine Spezialisten erkennbar'}</span>
+            : SPECS.filter((k) => a.spec[k]).length
+              ? SPECS.filter((k) => a.spec[k]).map((k) => <span key={k} className="rule">{a.spec[k]} × {SPEC_NAME[k]}</span>)
+              : <span className="rule">Keine Spezialisten</span>}
+          {!hidden && n > 0 && <span className="rule">{a.size - n} einfache Soldaten</span>}
+          <span className="rule" style={{ borderTop: '1px solid var(--rope)', paddingTop: 4, marginTop: 2 }}>
+            Angriff {num(a.size)} · Verteidigung hier {num(def)} ({LAND[hexLand(a.hex)].n}{c.buildings[a.hex] === 'mauer' ? ', Mauer' : ''})
+          </span>
+          <span className="rule">Reichweite {rangeOf(a)} · Fourage hier +{LAND[hexLand(a.hex)].forage}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CityRow({ c, prov, onClick }: { c: Campaign; prov: string; onClick: () => void }) {
   const p = PROV[prov];
-  const built = BUILDING_KEYS.filter((b) => hasBuilding(c, prov, b));
-  const trainable = SPECS.filter((k) => hasBuilding(c, prov, buildingFor(k)));
-  const army = c.armies.find((a) => a.prov === prov);
-  const owner = c.owner[prov];
-  const income = 3 + (hasBuilding(c, prov, 'markt') ? 2 : 0);
+  const ch = cityHex(prov);
+  const owner = c.hexOwner[ch] ?? null;
+  const near = buildingsNear(c, prov);
+  const army = c.armies.find((a) => a.hex === ch);
   return (
     <button type="button" onClick={onClick} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 5, padding: '9px 10px' }}>
       <span className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
         <b style={{ fontFamily: 'var(--display)' }}>{p.capital ? '♛ ' : ''}{p.n}</b>
-        <span className="rule" style={{ fontSize: 12 }}>{LAND[p.land].n}{owner ? ` · +${income} Gold` : ''}</span>
+        <span className="rule" style={{ fontSize: 12 }}>{LAND[p.land].n}{owner ? ` · Rekruten ${recruitSize(c, prov, owner)}` : ''}</span>
       </span>
       <span className="row" style={{ gap: 4 }}>
-        {p.capital && <Badge tone="gold" title="Wer sie erobert, gewinnt die Kampagne">Hauptstadt</Badge>}
-        {built.length ? built.map((b) => <Badge key={b} title={BUILDINGS[b].effect}>{BUILDINGS[b].n}</Badge>) : <span className="rule" style={{ fontSize: 12 }}>Keine Gebäude</span>}
+        {p.capital && <Badge tone="gold" title="Wer das Stadtfeld betritt, gewinnt die Kampagne">Hauptstadt</Badge>}
+        {near.length ? near.map((x) => (
+          <Badge key={x.hex} tone={x.active ? 'plain' : 'bad'} title={`${BUILDINGS[x.b].n}${x.active ? '' : ' (ruht, feindliches Heer auf dem Feld)'}`}>{BUILDING_ICON[x.b]} {BUILDINGS[x.b].n}{x.active ? '' : ' (ruht)'}</Badge>
+        )) : <span className="rule" style={{ fontSize: 12 }}>Keine Gebäude im Umland</span>}
       </span>
-      {(hasBuilding(c, prov, 'mauer') || hasBuilding(c, prov, 'kaserne') || hasBuilding(c, prov, 'markt') || trainable.length > 0) && (
-        <span className="rule" style={{ fontSize: 12 }}>
-          {[
-            hasBuilding(c, prov, 'mauer') && 'Verteidiger +30 %',
-            hasBuilding(c, prov, 'markt') && '+2 Gold durch Markt',
-            `Rekruten ${recruitSize(c, prov)}`,
-            trainable.length && `bildet aus: ${trainable.map((k) => SPEC_NAME[k]).join(', ')}`,
-          ].filter(Boolean).join(' · ')}
-        </span>
-      )}
       <span className="row" style={{ gap: 4 }}>
-        {army ? <Badge tone={army.house === owner ? 'good' : 'bad'}>{army.house === owner ? `Garnison ${army.size}` : `fremdes Heer (${army.size})`}</Badge> : owner && <Badge tone="bad" title="Ohne Heer kann jeder die Stadt kampflos besetzen">ungeschützt</Badge>}
-        {order && <Badge tone="gold">Befehl: {ORDER_TEXT[order.kind]}</Badge>}
+        {army ? <Badge tone={army.house === owner ? 'good' : 'bad'}>{army.house === owner ? `Garnison ${army.size}` : `fremdes Heer (${army.size})`}</Badge> : owner && <Badge tone="bad" title="Wer das Stadtfeld betritt, nimmt die Stadt ein">ungeschützt</Badge>}
       </span>
     </button>
   );

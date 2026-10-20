@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LAND, type Land } from './map.ts';
-import { AUTO_WIN, BUILDINGS, BUILDING_KEYS, COST, MAX_ARMY, ORDERS_PER_ROUND, SPEC_NAME } from './engine.ts';
+import { AGENT_BONUS, AGENT_RANGE, AUTO_WIN, BUILDINGS, BUILDING_KEYS, COST, MAX_AGENTS, MAX_ARMY, ORDERS_PER_ROUND, SPEC_NAME, TRADER_SPEED, UMLAND, type BuildingKey, type SpecKey } from './engine.ts';
 
 type Entry = { t: string; d: string; tags?: string };
 type Chapter = { n: string; icon: string; items: Entry[] };
@@ -8,50 +8,55 @@ type Chapter = { n: string; icon: string; items: Entry[] };
 const pct = (x: number) => `${Math.round((x - 1) * 100)} %`;
 
 function chapters(): Chapter[] {
+  const specLine = (k: SpecKey) => Object.entries(AGENT_BONUS[k]).map(([b, x]) => `auf ${BUILDINGS[b as BuildingKey].n}: ${x!.text}`).join('; ');
   return [
     {
       n: 'Befehle', icon: '✒', items: [
         { t: 'Befehl', d: `Jedes Haus gibt pro Runde bis zu ${ORDERS_PER_ROUND} Befehle. Sie werden geheim abgegeben, das Gerät geht dafür reihum. Danach werden alle Befehle beider Häuser gleichzeitig ausgeführt.` },
-        { t: 'Ziehen', d: 'Das Heer marschiert in eine angrenzende Provinz. Ist sie leer, gehört sie dir. Steht dort ein fremdes Heer, wird angegriffen. Ziehen beide Häuser in dieselbe Provinz, besetzt sie eine klare Übermacht, sonst kommt es zur Feldschlacht.', tags: 'bewegen angreifen marsch' },
-        { t: 'Unterstützen', d: 'Das Heer bleibt stehen und hilft einem eigenen Heer bei dessen Angriff oder Verteidigung in einer angrenzenden Provinz. Es zählt mit seiner halben Größe zur Stärke und bringt in einer Brett-Schlacht eine Extrakarte.', tags: 'hilfe support' },
-        { t: 'Fouragieren', d: `Das Heer bleibt stehen und versorgt sich aus dem Land: Es wächst um 1 Figur, auf Ackerland um 2. Im Gebirge gibt es nichts zu holen. Ein Heer hat höchstens ${MAX_ARMY} Figuren. Praktisch, um ohne Gold Verluste auszugleichen.`, tags: 'fourage nahrung versorgung auffüllen' },
-        { t: 'Rekrutieren', d: `Stadtbefehl für ${COST.recruit} Gold: Die Stadt stellt 3 neue Figuren auf, mit Kaserne 4. Sie stoßen erst nach dem Abmarsch dazu, also zum Heer, das in der Stadt bleibt, oder als neues Heer.`, tags: 'stadt truppen' },
-        { t: 'Ausbilden', d: `Stadtbefehl für ${COST.train} Gold: Das Heer in der Stadt erhält einen Spezialisten. Dafür braucht die Stadt das passende Gebäude, und das Heer muss groß genug sein (jeder Spezialist braucht einen einfachen Soldaten daneben).`, tags: 'stadt spezialist' },
-        { t: 'Bauen', d: 'Stadtbefehl: Die Stadt errichtet ein Gebäude. Es steht ab der nächsten Runde und bleibt auch bei Eroberung stehen – dann nutzt es der Eroberer.', tags: 'stadt gebäude' },
-        { t: 'Stadtbefehl', d: 'Jede Stadt kann pro Runde genau einen Befehl ausführen: bauen, rekrutieren oder ausbilden. Er zählt zu deinen Befehlen der Runde.' },
+        { t: 'Ziehen', d: 'Fahne antippen, dann leuchtende Felder anklicken: Der Weg folgt den Hexfeldern. Weitere Klicks hängen Wegpunkte an, das letzte Feld noch einmal antippen (oder „Weg bestätigen“) gibt den Befehl. Jedes betretene Feld wird eigen. Auf einem feindlichen Heer endet der Weg mit einem Angriff.', tags: 'bewegen angreifen marsch weg wegpunkt' },
+        { t: 'Bewegungspunkte', d: 'Die Reichweite hängt von der Größe ab: bis 6 Figuren 5 Punkte, 7 bis 11 Figuren 4, ab 12 Figuren 3. Ohne Spezialisten fehlt die Disziplin: 1 Punkt weniger. Ein Feld kostet 1 Punkt, Gebirge und Sumpf kosten 2.', tags: 'reichweite tempo disziplin' },
+        { t: 'Unterstützen', d: 'Das Heer bleibt stehen und hilft auf einem Nachbarfeld, bei Angriff wie Verteidigung. Es zählt mit seiner halben Größe und bringt in einer Brett-Schlacht eine Extrakarte.', tags: 'hilfe support' },
+        { t: 'Fouragieren', d: `Das Heer bleibt stehen und versorgt sich aus dem Land: +1 Figur, auf Ackerland +2, im Gebirge nichts. Ein Heer hat höchstens ${MAX_ARMY} Figuren.`, tags: 'fourage nahrung versorgung auffüllen' },
+        { t: 'Rekrutieren', d: `Stadtbefehl für ${COST.recruit} Gold: 3 neue Figuren auf dem Stadtfeld, mit Kaserne im Umland 4 (Einzelgänger können weitere bringen). Sie stoßen nach dem Marsch dazu.`, tags: 'stadt truppen' },
+        { t: 'Ausbilden', d: `Stadtbefehl für ${COST.train} Gold: ein Spezialist – ins Heer auf dem Stadtfeld oder als Einzelgänger. Dafür braucht die Stadt das passende aktive Gebäude im Umland.`, tags: 'stadt spezialist einzelgänger' },
+        { t: 'Bauen', d: `Ein Gebäude auf einem eigenen Feld im Umland einer eigenen Stadt (bis ${UMLAND} Felder entfernt), die Stadtmauer nur auf dem Stadtfeld. Zählt als Befehl.`, tags: 'gebäude umland' },
         { t: 'Versiegeln', d: 'Schließt deine Befehle für diese Runde ab. Danach ist das andere Haus dran, ohne deine Befehle zu sehen.' },
       ],
     },
     {
       n: 'Kampf', icon: '⚔', items: [
-        { t: 'Stärke', d: 'Größe des Heeres plus die halbe Größe aller Unterstützer. Verteidiger erhalten den Geländebonus ihrer Provinz und in einer Stadt mit Mauer weitere 30 %.' },
+        { t: 'Gleichzeitig ziehen', d: 'Beim Aufdecken gehen alle Heere Schritt für Schritt gleichzeitig. Zum Konflikt kommt es, wenn zwei Heere im selben Schritt dasselbe Feld betreten, wenn sie aneinander vorbei die Felder tauschen wollen oder wenn eines auf ein stehendes feindliches Heer trifft. Danach bleiben beide stehen.', tags: 'kreuzen begegnung schritt' },
+        { t: 'Stärke', d: 'Größe des Heeres plus die halbe Größe der Unterstützer. Verteidiger auf ihrem Feld erhalten den Geländebonus und auf einem Stadtfeld mit Mauer weitere 30 %.' },
         { t: 'Übermacht', d: `Ist eine Seite mindestens ${AUTO_WIN}-mal so stark wie die andere, siegt sie ohne Schlacht. Sonst kommt es zur Schlacht.`, tags: 'auto-sieg automatisch' },
-        { t: 'Schlacht auf dem Brett', d: 'Knappe Kämpfe werden als Deckmate-Partie ausgetragen. Der Angreifer führt die Offiziere, der Verteidiger die Mannschaft (höchstens 12 Steine). Jede Seite stellt selbst auf, welche Felder leer bleiben. Die Überlebenden kehren auf die Karte zurück.', tags: 'deckmate partie offiziere mannschaft' },
+        { t: 'Wettlauf und Feldschlacht', d: 'Betreten beide dasselbe Feld im selben Schritt, besetzt es eine klare Übermacht, die andere Seite bleibt stehen. Ist es knapper, treffen sich die Heere im Feld: Das stärkere führt die Offiziere (bei Gleichstand der Würfel), der Sieger behält das Feld, der Verlierer kehrt um.', tags: 'wettlauf feldschlacht' },
+        { t: 'Begegnung', d: 'Wollen zwei Heere aneinander vorbei die Felder tauschen, begegnen sie sich unterwegs: Eine klare Übermacht drängt die andere Seite zurück, sonst kommt es zur Feldschlacht.', tags: 'platztausch abprallen' },
+        { t: 'Schlacht auf dem Brett', d: 'Knappe Kämpfe werden als Deckmate-Partie ausgetragen. Der Angreifer führt die Offiziere, der Verteidiger die Mannschaft (höchstens 12 Steine). Die Überlebenden kehren auf die Karte zurück.', tags: 'deckmate partie offiziere mannschaft' },
         { t: 'Auswürfeln', d: 'Schneller Ersatz für die Brett-Schlacht. Die Siegchance entspricht dem Stärkeverhältnis. Der Sieger verliert rund 30 % seiner Figuren, der Verlierer rund die Hälfte.', tags: 'würfel schnell' },
-        { t: 'Extrakarte', d: 'Jedes unterstützende Heer gibt seiner Seite in der Brett-Schlacht eine zusätzliche Karte auf die Hand.', tags: 'karte unterstützung' },
-        { t: 'Rückzug', d: 'Der Verlierer weicht in eine angrenzende eigene oder freie Provinz aus. Gibt es keinen Weg, löst sich das Heer auf. Ein abgewehrter Angreifer kehrt in seine Ausgangsprovinz zurück.', tags: 'flucht' },
-        { t: 'Abprallen', d: 'Ziehen zwei Heere gegeneinander (Platztausch), begegnen sie sich unterwegs. Keines kommt an, beide bleiben stehen.', tags: 'platztausch' },
-        { t: 'Wettlauf und Feldschlacht', d: 'Ziehen beide Häuser gleichzeitig in dieselbe Provinz, gewinnt eine mindestens 1,5-fache Übermacht kampflos, die andere Seite kehrt um. Ist es knapper, treffen sich die Heere im Feld: Das stärkere Heer führt die Offiziere (bei Gleichstand entscheidet der Würfel), der Sieger besetzt die Provinz, der Verlierer kehrt um. Gelände gibt dabei keinem Verteidigungsbonus.', tags: 'wettlauf feldschlacht gleichzeitig' },
+        { t: 'Rückzug', d: 'Wer überrannt wird, weicht auf ein angrenzendes Feld ohne feindliches Heer aus, am liebsten ein eigenes. Gibt es keines, löst sich das Heer auf.', tags: 'flucht' },
       ],
     },
     {
       n: 'Heere', icon: '⚑', items: [
-        { t: 'Heer', d: `Die Zahl auf der Fahne ist die Größe des Heeres (höchstens ${MAX_ARMY}). Der goldene Punkt zeigt, wie viele Spezialisten dabei sind. Treffen sich zwei eigene Heere, vereinen sie sich.`, tags: 'armee größe fahne' },
-        { t: SPEC_NAME.CAP, d: `Höchstens 1 pro Heer. Ausbildung braucht eine ${BUILDINGS.messe.n}.`, tags: 'spezialist offizier' },
-        { t: SPEC_NAME.KAP, d: `Höchstens 2 pro Heer. Ausbildung braucht eine ${BUILDINGS.kapelle.n}.`, tags: 'spezialist kaplan' },
-        { t: SPEC_NAME.KAN, d: `Höchstens 2 pro Heer. Ausbildung braucht eine ${BUILDINGS.giesserei.n}.`, tags: 'spezialist kanone' },
-        { t: SPEC_NAME.MAR, d: `Höchstens 2 pro Heer. Ausbildung braucht eine ${BUILDINGS.kaserne.n}.`, tags: 'spezialist marines' },
+        { t: 'Heer', d: `Die Zahl auf der Fahne ist die Größe (höchstens ${MAX_ARMY}), der goldene Punkt die Zahl der Spezialisten. Enden zwei eigene Heere auf demselben Feld, vereinen sie sich; durchziehen geht ohne.`, tags: 'armee größe fahne' },
+        { t: 'Einzelgänger', d: `Ein Spezialist ohne Heer (höchstens ${MAX_AGENTS} je Haus). Er zieht bis ${AGENT_RANGE} Punkte weit, meidet feindliche Heere und wird gefangen, wenn eines sein Feld betritt. Auf einem passenden eigenen, aktiven Gebäude gibt er einen Bonus; endet sein Weg bei einem eigenen Heer, tritt er ihm bei.`, tags: 'agent spezialist bonus' },
+        { t: SPEC_NAME.CAP, d: `Höchstens 1 pro Heer, braucht eine ${BUILDINGS.messe.n}. Als Einzelgänger ${specLine('CAP')}.`, tags: 'spezialist offizier' },
+        { t: SPEC_NAME.KAP, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.kapelle.n}. Als Einzelgänger ${specLine('KAP')}.`, tags: 'spezialist kaplan kollekte' },
+        { t: SPEC_NAME.KAN, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.giesserei.n}. Als Einzelgänger ${specLine('KAN')}.`, tags: 'spezialist kanone' },
+        { t: SPEC_NAME.MAR, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.kaserne.n}. Als Einzelgänger ${specLine('MAR')}.`, tags: 'spezialist marines geleitschutz' },
         { t: 'First Leutnant', d: 'Führt jedes angreifende Heer in der Brett-Schlacht an. Fällt er, ist die Schlacht verloren.' },
         { t: 'Fieber', d: 'Ein Heer, das am Rundenende im Sumpf steht, verliert 1 Figur.', tags: 'sumpf krankheit' },
       ],
     },
     {
       n: 'Land und Gold', icon: '⛁', items: [
-        { t: 'Provinz', d: 'Ein Gebiet aus mehreren Hexfeldern. Sie gehört dem Haus, dessen Heer zuletzt darin stand, auch wenn das Heer weiterzieht. Die farbige Kontur zeigt die Reichsgrenze.', tags: 'besitz grenze' },
-        { t: 'Stadt', d: 'Provinzen mit Wappen. Städte bringen mehr Gold und Punkte, können bauen, rekrutieren und ausbilden.' },
-        { t: 'Hauptstadt', d: 'Stadt mit Krone. Wer die gegnerische Hauptstadt erobert, gewinnt die Kampagne sofort.', tags: 'sieg krone' },
+        { t: 'Feld', d: 'Jedes Hexfeld gehört dem Haus, dessen Heer es zuletzt betreten hat – auch wenn das Heer weiterzieht. Die farbige Kontur zeigt die Reichsgrenze.', tags: 'besitz grenze hexfeld' },
+        { t: 'Provinz', d: 'Ein Gebiet aus mehreren Feldern. Sie gehört dem Haus mit den meisten Feldern darin; eine Provinz mit Stadt gehört, wer das Stadtfeld hält.', tags: 'besitz' },
+        { t: 'Stadt', d: 'Eingenommen wird eine Stadt nur, wenn ein Heer ihr Stadtfeld betritt. Städte bringen Gold und Punkte, rekrutieren und bilden aus.' },
+        { t: 'Umland', d: `Alle Felder bis ${UMLAND} Schritte um eine Stadt. Dort stehen ihre Gebäude.`, tags: 'gebäude' },
+        { t: 'Hauptstadt', d: 'Stadt mit Krone. Wer das gegnerische Hauptstadtfeld hält, gewinnt die Kampagne.', tags: 'sieg krone' },
+        { t: 'Händler', d: `Jeder aktive Markt schickt einen Händler zur nächsten eigenen Stadt. Er zieht ${TRADER_SPEED} Felder pro Runde und bringt bei Ankunft Gold (je weiter, desto mehr). Ein feindliches Heer auf seinem Weg überfällt ihn und erbeutet die Hälfte.`, tags: 'markt gold handel' },
+        { t: 'Einkommen', d: 'Am Rundenende: 1 Gold je Provinz, +2 je Stadt, +1 je aktivem Markt, dazu die Kollekte von Kaplänen auf Märkten. Händler bringen extra.', tags: 'gold' },
         { t: 'Gold', d: 'In der Kopfleiste steht „verfügbar/gesamt“: was nach deinen geplanten Befehlen übrig bleibt. Das Gold des Gegners bleibt verdeckt.', tags: 'geld' },
-        { t: 'Einkommen', d: `Am Rundenende: 1 Gold je Provinz, 2 je Stadt und +2 je ${BUILDINGS.markt.n}.`, tags: 'gold' },
         { t: 'Punkte', d: 'Provinz 1 Punkt, Stadt 3 Punkte. Nach der letzten Runde gewinnt, wer mehr Punkte hat.', tags: 'sieg wertung' },
       ],
     },
@@ -59,6 +64,7 @@ function chapters(): Chapter[] {
       n: 'Gelände', icon: '⛰', items: (Object.keys(LAND) as Land[]).map((k) => {
         const l = LAND[k];
         const parts = [
+          k === 'G' || k === 'S' ? 'Kostet 2 Bewegungspunkte.' : 'Kostet 1 Bewegungspunkt.',
           l.forage === 0 ? 'Keine Fourage.' : `Fourage +${l.forage}.`,
           l.defense > 1 ? `Verteidiger ${pct(l.defense)} stärker.` : '',
           l.battle === 'fluss' ? 'In der Schlacht gilt die Furt.' : l.battle === 'gebirge' ? 'In der Schlacht erhält der Verteidiger eine Karte mehr.' : l.battle === 'huegel' ? 'In der Schlacht beginnt der Verteidiger.' : '',
@@ -68,7 +74,7 @@ function chapters(): Chapter[] {
       }),
     },
     {
-      n: 'Gebäude', icon: '⌂', items: BUILDING_KEYS.map((b) => ({ t: BUILDINGS[b].n, d: `${BUILDINGS[b].cost} Gold. ${BUILDINGS[b].effect}`, tags: 'gebäude bauen stadt' })),
+      n: 'Gebäude', icon: '⌂', items: BUILDING_KEYS.map((b) => ({ t: BUILDINGS[b].n, d: `${BUILDINGS[b].cost} Gold. ${BUILDINGS[b].effect} Steht ein feindliches Heer auf dem Feld, ruht das Gebäude; zieht es weiter und das Feld bleibt in seiner Hand, ist das Gebäude erobert.`, tags: 'gebäude bauen umland' })),
     },
   ];
 }

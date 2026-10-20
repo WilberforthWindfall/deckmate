@@ -6,60 +6,52 @@ import { battleResult } from '../game/battle.ts';
 import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
 import Overview from '../campaign/Overview.tsx';
+import { CityPanel, HexPanel, describe, specText } from '../campaign/Panels.tsx';
 import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
 import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
-  BUILDINGS, BUILDING_KEYS, COST, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, buildingFor, hasBuilding, orderCost, recruitSize, armyAt, armyById, autoBattle, battleGame, newCampaign, movePreview, orderProblem, score, sealOrders,
-  type CArmy, type Campaign as CampaignState, type Order, type SpecKey, type Tone,
+  AGENT_RANGE, BUILDINGS, ORDERS_PER_ROUND, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
+  movePreview, newCampaign, orderCost, orderProblem, pathCost, rangeOf, score, sealOrders,
+  type BuildingKey, type Campaign as CampaignState, type Order, type Tone,
 } from '../campaign/engine.ts';
-import { ADJ, HOUSES, LAND, PROV, PROVINCES, provCenter, type House } from '../campaign/map.ts';
+import { CITY_HEX, HEX_ADJ, HOUSES, LAND, PROVINCES, hexCenter, hexLand, hexName, pathTo, reachable, type HexKey, type House } from '../campaign/map.ts';
 
 // Campaign prototype on one device: houses give their orders in turn (the other player looks away), then all resolve at once.
 
-const KEY = 'deckmate.kampagne.v1';
-/** Width of the left panel, which is always open (overview or city). */
+const KEY = 'deckmate.kampagne.v2';
+/** Width of the left panel, which is always open (overview, city or field). */
 const LEFT = 330;
 const LEFT_PANEL = {
   position: 'absolute' as const, left: 0, top: 58, bottom: 0, width: LEFT, zIndex: 6, overflowY: 'auto' as const, gap: 12,
   padding: 16, background: 'var(--hull)', borderRight: '1px solid var(--rope)',
 };
 const load = (): CampaignState => {
-  try { const s = localStorage.getItem(KEY); if (s) { const c = JSON.parse(s) as CampaignState; c.buildings ??= {}; return c; } } catch { /* ignore */ }
+  try { const s = localStorage.getItem(KEY); if (s) { const c = JSON.parse(s) as CampaignState; if (c.v === 2) return c; } } catch { /* ignore */ }
   return newCampaign();
 };
 const save = (c: CampaignState) => { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch { /* ignore */ } };
+const STEP_MS = 650;
 
-function describe(c: CampaignState, o: Order): string {
-  if (o.kind === 'move') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} (${a.size}) zieht nach ${PROV[o.to].n}`; }
-  if (o.kind === 'support') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} unterstützt ${PROV[o.target].n}`; }
-  if (o.kind === 'forage') { const a = armyById(c, o.army)!; return `Heer ${PROV[a.prov].n} fouragiert (+${LAND[PROV[a.prov].land].forage})`; }
-  if (o.kind === 'recruit') return `${PROV[o.prov].n}: Figuren rekrutieren (${COST.recruit} Gold)`;
-  if (o.kind === 'build') return `${PROV[o.prov].n}: ${BUILDINGS[o.b].n} bauen (${BUILDINGS[o.b].cost} Gold)`;
-  return `${PROV[o.prov].n}: ${SPEC_NAME[o.spec]} ausbilden (${COST.train} Gold)`;
-}
-
-const specText = (a: CArmy) => {
-  const parts = (Object.keys(SPEC_NAME) as SpecKey[]).filter((k) => a.spec[k]).map((k) => `${a.spec[k]} ${SPEC_NAME[k]}`);
-  return parts.length ? parts.join(', ') : 'keine Spezialisten';
-};
+type Unit = { kind: 'army' | 'agent'; id: string };
+type Panel = { kind: 'overview' } | { kind: 'city'; prov: string } | { kind: 'hex'; hex: HexKey };
 
 export default function Campaign() {
   const [c, setC] = useState<CampaignState>(load);
   const [ready, setReady] = useState(false);
   const [draft, setDraft] = useState<Order[]>([]);
-  const [sel, setSel] = useState<string | null>(null);
-  const [armySel, setArmySel] = useState<string | null>(null);
+  const [selHex, setSelHex] = useState<HexKey | null>(null);
+  const [unit, setUnit] = useState<Unit | null>(null);
+  const [path, setPath] = useState<HexKey[]>([]);
   const [mode, setMode] = useState<'move' | 'support'>('move');
-  const [city, setCity] = useState<string | null>(null);
+  const [buildMode, setBuildMode] = useState<BuildingKey | null>(null);
+  const [panel, setPanel] = useState<Panel>({ kind: 'overview' });
   const [msg, setMsg] = useState('');
   const [battle, setBattle] = useState<{ id: string; st: GameState } | null>(null);
-  /**
-   * Reveal after both houses sealed: all orders as arrows, then every army sets out (those that turn back stop halfway),
-   * then they settle where they end up, then the conflicts are explained one by one.
-   */
-  const [show, setShow] = useState<null | 'orders' | 'advance' | 'settle' | 'conflicts'>(null);
+  /** Reveal: all orders as lines, then the walk step by step, then everyone settles, then the conflicts are explained. */
+  const [show, setShow] = useState<null | 'orders' | 'walk' | 'settle' | 'conflicts'>(null);
+  const [step, setStep] = useState(0);
   /** Index of the conflict whose explanation card is open. */
   const [conf, setConf] = useState<number | null>(null);
   const [cardPos, setCardPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -68,29 +60,33 @@ export default function Campaign() {
   /** 2D (SVG) or 3D map; remembered per browser. */
   const [view3d, setView3d] = useState(() => { try { return localStorage.getItem('deckmate.kampagne.ansicht') === '3d'; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem('deckmate.kampagne.ansicht', view3d ? '3d' : '2d'); } catch { /* ignore */ } }, [view3d]);
-  /** Screen position (client coordinates) of a province, from whichever map is shown. */
-  const projector = useRef<((prov: string) => [number, number] | null) | null>(null);
+  /** Screen position (client coordinates) of a field, from whichever map is shown. */
+  const projector = useRef<((hex: HexKey) => [number, number] | null) | null>(null);
   const [camTick, setCamTick] = useState(0);
   const [banner, setBanner] = useState<number | null>(null);
   const shownRound = useRef(0);
-  const stage = useRef<HTMLDivElement>(null);
 
   useEffect(() => save(c), [c]);
+  const clearSel = () => { setUnit(null); setPath([]); setMode('move'); setBuildMode(null); };
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setArmySel(null); setCity(null); } };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUnit(null); setPath([]); setBuildMode(null); setPanel({ kind: 'overview' }); } };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, []);
-  useEffect(() => { if (c.reveal && show === null) setShow('orders'); }, [c.reveal, show]);
+  const walkLen = c.reveal ? Math.max(1, ...Object.values(c.reveal.walk ?? {}).map((w) => w.length)) : 1;
+  useEffect(() => { if (c.reveal && show === null) { setStep(0); setShow('orders'); } }, [c.reveal, show]);
   const finishReveal = () => { setShow(null); setConf(null); setC((p) => ({ ...p, reveal: null })); };
   useEffect(() => {
-    if (show === 'orders') { const t = setTimeout(() => setShow('advance'), 3500); return () => clearTimeout(t); }
-    if (show === 'advance') { const t = setTimeout(() => setShow('settle'), 1000); return () => clearTimeout(t); }
-    if (show === 'settle') {
-      const t = setTimeout(() => { if (c.conflicts?.length) { setConf(0); setShow('conflicts'); } else finishReveal(); }, 1100);
+    if (show === 'orders') { const t = setTimeout(() => setShow('walk'), 3000); return () => clearTimeout(t); }
+    if (show === 'walk') {
+      const t = setTimeout(() => { if (step + 1 <= walkLen) setStep(step + 1); else setShow('settle'); }, STEP_MS);
       return () => clearTimeout(t);
     }
-  }, [show]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (show === 'settle') {
+      const t = setTimeout(() => { if (c.conflicts?.length) { setConf(0); setShow('conflicts'); } else finishReveal(); }, 900);
+      return () => clearTimeout(t);
+    }
+  }, [show, step]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!show && !c.reveal && c.phase === 'orders' && !ready && shownRound.current !== c.round) { shownRound.current = c.round; setBanner(c.round); }
   }, [show, c.reveal, c.phase, c.round, ready]);
@@ -101,10 +97,10 @@ export default function Campaign() {
       const box = mapBox.current;
       if (!card || !box) { setCardPos(null); return; }
       let pt: [number, number] | null = null;
-      if (view3d) pt = projector.current?.(card.prov) ?? null;
+      if (view3d) pt = projector.current?.(card.hex) ?? null;
       else {
         const m = svgRef.current?.getScreenCTM();
-        if (m) { const [x, y] = provCenter(card.prov); const q = new DOMPoint(x, y).matrixTransform(m); pt = [q.x, q.y]; }
+        if (m) { const [x, y] = hexCenter(card.hex); const q = new DOMPoint(x, y).matrixTransform(m); pt = [q.x, q.y]; }
       }
       if (!pt) return;
       const r = box.getBoundingClientRect();
@@ -114,60 +110,99 @@ export default function Campaign() {
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [card?.prov, city, view3d, camTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [card?.hex, view3d, camTick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (banner !== null) { const t = setTimeout(() => setBanner(null), 2600); return () => clearTimeout(t); } }, [banner]);
 
   const h = c.current;
   const giving = c.phase === 'orders' && ready && !show;
-  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3000); };
+  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3200); };
 
   const why = (o: Order) => orderProblem(c, h, o, draft);
   function add(o: Order) {
     const w = why(o);
-    if (w) { flash(w); return; }
-    setDraft([...draft, o]); setArmySel(null); setMode('move');
+    if (w) { flash(w); return false; }
+    setDraft([...draft, o]); clearSel();
+    return true;
   }
-  function openCity(id: string) { setArmySel(null); setCity(id); }
+  const removeOrder = (i: number) => setDraft(draft.filter((_, j) => j !== i));
 
-  const orderOf = (armyId: string) => draft.findIndex((o) => 'army' in o && o.army === armyId);
-  const selArmy = armySel ? armyById(c, armySel) : null;
-  const selOrder = selArmy ? orderOf(selArmy.id) : -1;
-  const targeting = !!(giving && selArmy && selArmy.house === h && selOrder < 0 && draft.length < ORDERS_PER_ROUND);
-  const targets = targeting ? ADJ[selArmy!.prov] : [];
+  // ----- selected unit and its way -----
+  const selArmy = unit?.kind === 'army' ? armyById(c, unit.id) : null;
+  const selAgent = unit?.kind === 'agent' ? agentById(c, unit.id) : null;
+  const selPos = selArmy?.hex ?? selAgent?.hex ?? null;
+  const selOrder = unit ? draft.findIndex((o) => ('army' in o && o.army === unit.id) || (o.kind === 'agent' && o.agent === unit.id)) : -1;
+  const engaged = engagedIds(c);
+  const mineSel = !!(giving && unit && (selArmy?.house === h || selAgent?.house === h) && !(selArmy && engaged.has(selArmy.id)));
+  const planning = mineSel && selOrder < 0 && draft.length < ORDERS_PER_ROUND;
+  const budget = selArmy ? rangeOf(selArmy) : selAgent ? AGENT_RANGE : 0;
+  const left = budget - pathCost(path);
+  const enemyHexes = new Set(c.armies.filter((a) => a.house !== h).map((a) => a.hex));
+  const pathEnd = path.length ? path[path.length - 1] : selPos;
+  const stoppedOnEnemy = !!(path.length && enemyHexes.has(path[path.length - 1]));
+  const reachInfo = planning && mode === 'move' && pathEnd && !stoppedOnEnemy
+    ? reachable(pathEnd, left, selArmy ? enemyHexes : new Set(), selAgent ? enemyHexes : new Set())
+    : null;
+  const reach: Record<HexKey, number> | undefined = reachInfo ? reachInfo.cost : planning && mode === 'support' && selPos ? Object.fromEntries(HEX_ADJ[selPos].map((k) => [k, 1])) : undefined;
+  // build site picking
+  const siteReach: Record<HexKey, number> | undefined = buildMode && giving
+    ? Object.fromEntries(Object.keys(c.hexOwner).filter((k) => !why({ kind: 'build', hex: k, b: buildMode })).map((k) => [k, 0]))
+    : undefined;
 
-  function onArmy(id: string) {
+  function selectArmy(id: string) {
     const a = armyById(c, id);
     if (!a) return;
-    if (targeting && a.id !== selArmy!.id && targets.includes(a.prov)) { onProvince(a.prov); return; }
-    setCity(null); setSel(a.prov);
-    if (!giving || a.house !== h) { setArmySel(null); return; }
-    if (armySel === id) { setArmySel(null); return; }
-    setArmySel(id); setMode('move');
+    setBuildMode(null);
+    if (planning && mode === 'support' && selArmy && HEX_ADJ[selArmy.hex].includes(a.hex) && a.id !== selArmy.id) { onHex(a.hex); return; }
+    if (planning && mode === 'move' && unit?.id !== id && reach && a.hex in reach) { onHex(a.hex); return; }
+    setSelHex(a.hex);
+    if (!giving || a.house !== h) { clearSel(); setPanel({ kind: 'hex', hex: a.hex }); return; }
+    if (unit?.id === id) { clearSel(); return; }
+    setUnit({ kind: 'army', id }); setPath([]); setMode('move');
   }
-
-  function onProvince(id: string) {
-    setSel(id);
-    if (targeting && targets.includes(id)) {
-      add(mode === 'move' ? { kind: 'move', army: selArmy!.id, to: id } : { kind: 'support', army: selArmy!.id, target: id });
-      return;
+  function selectAgent(id: string) {
+    const g = agentById(c, id);
+    if (!g) return;
+    setBuildMode(null);
+    if (planning && reach && g.hex in reach && unit?.id !== id) { onHex(g.hex); return; }
+    setSelHex(g.hex);
+    if (!giving || g.house !== h) { clearSel(); setPanel({ kind: 'hex', hex: g.hex }); return; }
+    if (unit?.id === id) { clearSel(); return; }
+    setUnit({ kind: 'agent', id }); setPath([]); setMode('move');
+  }
+  function confirmPath(p = path) {
+    if (!unit || !p.length) return;
+    add(unit.kind === 'army' ? { kind: 'move', army: unit.id, path: p } : { kind: 'agent', agent: unit.id, path: p });
+  }
+  function onHex(k: HexKey) {
+    if (buildMode) {
+      if (siteReach && k in siteReach) { add({ kind: 'build', hex: k, b: buildMode }); return; }
+      setBuildMode(null);
     }
-    if (PROV[id].city) { openCity(id); return; }
-    setCity(null);
-    const a = armyAt(c, id);
-    if (giving && a && a.house === h) { onArmy(a.id); return; }
-    setArmySel(null);
+    if (planning && mode === 'support' && selArmy) {
+      if (HEX_ADJ[selArmy.hex].includes(k)) { add({ kind: 'support', army: selArmy.id, target: k }); return; }
+    }
+    if (planning && mode === 'move' && selPos) {
+      if (path.length && k === path[path.length - 1]) { confirmPath(); return; }
+      const onPath = path.indexOf(k);
+      if (onPath >= 0) { setPath(path.slice(0, onPath + 1)); return; }
+      if (k === selPos) { setPath([]); return; }
+      if (reachInfo && k in reachInfo.cost && k !== pathEnd) { setPath([...path, ...pathTo(reachInfo.prev, k)]); return; }
+    }
+    clearSel();
+    setSelHex(k);
+    setPanel(CITY_HEX[k] ? { kind: 'city', prov: CITY_HEX[k] } : { kind: 'hex', hex: k });
   }
 
   function seal() {
     try {
       const next = sealOrders(c, h, draft, Math.random);
-      setC(next); setDraft([]); setSel(null); setArmySel(null); setCity(null); setReady(false);
+      setC(next); setDraft([]); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setReady(false);
     } catch (e) { flash((e as Error).message); }
   }
   function restart() {
     if (!confirm('Kampagne neu beginnen? Der aktuelle Stand geht verloren.')) return;
     shownRound.current = 0;
-    setC(newCampaign()); setDraft([]); setReady(false); setSel(null); setArmySel(null); setCity(null); setBattle(null); setShow(null); setConf(null);
+    setC(newCampaign()); setDraft([]); setReady(false); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setBattle(null); setShow(null); setConf(null);
   }
   function takeBattle() {
     if (!battle) return;
@@ -197,30 +232,51 @@ export default function Campaign() {
     );
   }
 
-  const cityOrder = (prov: string) => draft.findIndex((o) => (o.kind === 'recruit' || o.kind === 'train' || o.kind === 'build') && o.prov === prov);
-  const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(o), 0);
+  const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(c, h, o), 0);
   const phaseText = show === 'conflicts' ? 'Konflikte der Runde' : show ? 'Befehle werden aufgedeckt' : c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
 
-  const labels: Record<string, { text: string; tone: Tone }> = {};
-  if (targeting) for (const t of targets) labels[t] = mode === 'move' ? movePreview(c, h, selArmy!.id, t, draft) : { text: `+${String(selArmy!.size / 2).replace('.', ',')} Stärke`, tone: 'plain' };
-  const idle = giving ? c.armies.filter((a) => a.house === h && !a.prov.startsWith('@') && orderOf(a.id) < 0) : [];
-
-  // What the map shows: during the first reveal step the positions before the march and all orders of both houses.
-  const before = show === 'orders' && c.reveal ? c.reveal : null;
-  const mapC = before ? { ...c, round: before.round, armies: before.armies, owner: before.owner, gold: before.gold ?? c.gold, battles: [] } : c;
-  const mapOrders = show === 'orders' && c.reveal ? [...c.reveal.orders.R, ...c.reveal.orders.K] : giving ? draft : [];
-  const halfway: Record<string, [number, number]> = {};
-  if (show === 'advance') for (const e of explained) for (const t of e.turnedBack) {
-    const [x1, y1] = provCenter(t.from), [x2, y2] = provCenter(t.to);
-    halfway[t.army] = [x1 + (x2 - x1) * 0.55, y1 + (y2 - y1) * 0.55];
+  // signs on fields: expected outcome at the end of the way, or the support bonus
+  const labels: Record<HexKey, { text: string; tone: Tone }> = {};
+  if (planning && selArmy && mode === 'move') {
+    if (path.length) labels[path[path.length - 1]] = movePreview(c, h, selArmy.id, path[path.length - 1], draft);
+    if (reach) for (const k of Object.keys(reach)) if (enemyHexes.has(k) && !labels[k]) labels[k] = movePreview(c, h, selArmy.id, k, draft);
   }
+  if (planning && selArmy && mode === 'support') for (const k of HEX_ADJ[selArmy.hex]) labels[k] = { text: `+${num(selArmy.size / 2)} Stärke`, tone: 'plain' };
+  const idle = giving ? c.armies.filter((a) => a.house === h && !engaged.has(a.id) && !draft.some((o) => 'army' in o && o.army === a.id)) : [];
 
-  const forage = selArmy ? LAND[PROV[selArmy.prov].land].forage : 0;
+  // What the map shows during the reveal: positions before the march, then step by step along the walks.
+  const rv = c.reveal;
+  const walking = (show === 'orders' || show === 'walk') && rv;
+  const at = Math.min(step, walkLen - 1);
+  let mapC: CampaignState = c;
+  const posOverride: Record<string, [number, number]> = {};
+  if (walking) {
+    const hexOwner = { ...rv.hexOwner };
+    if (show === 'walk') for (const a of rv.armies) for (const k of (rv.walk[a.id] ?? []).slice(1, at + 1)) hexOwner[k] = a.house;
+    mapC = { ...c, round: rv.round, armies: rv.armies, agents: rv.agents, traders: rv.traders, hexOwner, owner: rv.owner, gold: rv.gold, battles: [] };
+    if (show === 'walk') {
+      for (const [id, w] of Object.entries(rv.walk)) posOverride[id] = hexCenter(w[at]);
+      // those stopped in a conflict at this step march halfway towards the field and come back
+      for (const e of explained) if (e.step === step) for (const t of e.turnedBack) {
+        const [x1, y1] = hexCenter(t.from), [x2, y2] = hexCenter(t.to);
+        posOverride[t.army] = [x1 + (x2 - x1) * 0.5, y1 + (y2 - y1) * 0.5];
+      }
+    }
+  }
+  const mapOrders = walking && show === 'orders' ? [...rv.orders.R, ...rv.orders.K] : giving ? draft : [];
+  const plan = planning && selPos && mode === 'move' ? { from: selPos, path, house: h } : null;
+  const mapProps = {
+    c: mapC, selectedHex: selHex, selectedUnit: unit?.id ?? null, reach: siteReach ?? reach, plan, orders: mapOrders,
+    onHex, onArmy: selectArmy, onAgent: selectAgent, labels,
+    focus: card ? [card.hex, ...(card.hex2 ? [card.hex2] : [])] : undefined, posOverride, stepMs: show === 'walk' ? STEP_MS - 50 : 900,
+  };
+
+  const forage = selArmy ? LAND[hexLand(selArmy.hex)].forage : 0;
   const forageWhy = selArmy ? why({ kind: 'forage', army: selArmy.id }) : '';
 
   return (
     <div className="app">
-      <div className="stage" ref={stage} style={{ background: '#0D2A33', display: 'flex', flexDirection: 'column' }}>
+      <div className="stage" style={{ background: '#0D2A33', display: 'flex', flexDirection: 'column' }}>
         <div role="banner" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
           padding: '10px 16px', background: 'var(--hull)', borderBottom: '1px solid var(--rope)', zIndex: 4,
@@ -257,15 +313,9 @@ export default function Campaign() {
         <div ref={mapBox} style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: LEFT }}>
           {view3d ? (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              <CampaignMap3D c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
-                onArmy={onArmy} selectedArmy={armySel} labels={labels} house={h} projector={projector} onCamera={() => card && setCamTick((t) => t + 1)}
-                focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
+              <CampaignMap3D {...mapProps} house={h} projector={projector} onCamera={() => card && setCamTick((t) => t + 1)} />
             </div>
-          ) : (
-            <CampaignMap c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
-              onArmy={onArmy} selectedArmy={armySel} labels={labels} svgRef={svgRef}
-              focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
-          )}
+          ) : <CampaignMap {...mapProps} svgRef={svgRef} />}
           <div role="group" aria-label="Kartenansicht" className="row" style={{ position: 'absolute', left: LEFT + 12, top: 12, gap: 0, zIndex: 3 }}>
             {[false, true].map((d) => (
               <button key={String(d)} type="button" className={view3d === d ? 'on' : ''} aria-pressed={view3d === d} onClick={() => setView3d(d)}
@@ -281,51 +331,72 @@ export default function Campaign() {
               finalLabel={show === 'conflicts' ? (c.phase === 'battles' ? 'Zu den Schlachten' : 'Weiter') : 'Schließen'} />
           )}
 
-          {giving && selArmy && selArmy.house === h && (
-            <div role="dialog" aria-label={`Heer in ${PROV[selArmy.prov].n}`} className="card" style={{
-              position: 'absolute', left: LEFT + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 660, zIndex: 5,
+          {buildMode && giving && (
+            <div role="status" className="card" style={{ position: 'absolute', left: LEFT + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 560, zIndex: 5, display: 'flex', gap: 10, alignItems: 'center', background: 'var(--hull)', borderColor: 'var(--brass)' }}>
+              <span style={{ flex: 1 }}>Wo soll {BUILDINGS[buildMode].art === 'einen' ? 'der' : 'die'} <b>{BUILDINGS[buildMode].n}</b> stehen? Tippe ein leuchtendes Feld im Umland an.</span>
+              <button type="button" className="ghost" onClick={() => setBuildMode(null)}>Abbrechen</button>
+            </div>
+          )}
+
+          {mineSel && (selArmy || selAgent) && !buildMode && (
+            <div role="dialog" aria-label="Befehl geben" className="card" style={{
+              position: 'absolute', left: LEFT + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 700, zIndex: 5,
               display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'var(--hull)', borderColor: 'var(--brass)',
               boxShadow: '0 10px 30px rgba(0,0,0,.4)',
             }}>
-              <div className="stack" style={{ gap: 2, flex: '1 1 240px', minWidth: 0 }}>
-                <b style={{ fontFamily: 'var(--display)' }}>Heer in {PROV[selArmy.prov].n} · {selArmy.size} Figuren</b>
-                <span className="rule" style={{ fontSize: 12 }}>{specText(selArmy)}</span>
+              <div className="stack" style={{ gap: 2, flex: '1 1 260px', minWidth: 0 }}>
+                <b style={{ fontFamily: 'var(--display)' }}>
+                  {selArmy ? `Heer bei ${hexName(selArmy.hex)} · ${selArmy.size} Figuren` : `${SPEC_NAME[selAgent!.spec]} bei ${hexName(selAgent!.hex)}`}
+                </b>
+                <span className="rule" style={{ fontSize: 12 }}>
+                  {selArmy ? `${specText(selArmy)} · Reichweite ${budget}` : `Einzelgänger · Reichweite ${budget}, meidet feindliche Heere`}
+                  {planning && mode === 'move' && ` · Weg ${pathCost(path)}/${budget} Punkte`}
+                </span>
                 <span style={{ fontSize: 13 }}>
-                  {selOrder >= 0 ? `Befehl: ${describe(c, draft[selOrder])}`
-                    : !targeting ? `Alle ${ORDERS_PER_ROUND} Befehle dieser Runde sind vergeben.`
-                    : mode === 'move' ? 'Tippe eine leuchtende Nachbarprovinz an, um dorthin zu ziehen. Gegnerische Unterstützung ist geheim und nicht eingerechnet.'
-                    : 'Welche Nachbarprovinz soll das Heer unterstützen? Es zählt mit halber Größe.'}
+                  {selOrder >= 0 ? `Befehl: ${describe(c, h, draft[selOrder])}`
+                    : !planning ? `Alle ${ORDERS_PER_ROUND} Befehle dieser Runde sind vergeben.`
+                    : mode === 'support' ? 'Welches Nachbarfeld soll das Heer unterstützen? Es zählt dort mit halber Größe.'
+                    : !path.length ? 'Tippe ein leuchtendes Feld an: Der Weg folgt den Hexfeldern. Gebirge und Sumpf kosten 2 Punkte.'
+                    : stoppedOnEnemy ? 'Der Weg endet am feindlichen Heer. Bestätigen oder Schritte zurücknehmen.'
+                    : 'Weitere Felder anklicken verlängert den Weg (Wegpunkte). Das letzte Feld noch einmal antippen oder bestätigen.'}
                 </span>
               </div>
               <div className="row" style={{ gap: 6 }}>
-                {selOrder >= 0 && <button type="button" onClick={() => setDraft(draft.filter((_, j) => j !== selOrder))}>Befehl zurücknehmen</button>}
-                {targeting && (mode === 'move'
-                  ? <button type="button" onClick={() => setMode('support')}>Unterstützen …</button>
+                {selOrder >= 0 && <button type="button" onClick={() => removeOrder(selOrder)}>Befehl zurücknehmen</button>}
+                {planning && mode === 'move' && path.length > 0 && <button type="button" className="primary" onClick={() => confirmPath()}>Weg bestätigen</button>}
+                {planning && mode === 'move' && path.length > 0 && <button type="button" onClick={() => setPath(path.slice(0, -1))}>Schritt zurück</button>}
+                {planning && selArmy && (mode === 'move'
+                  ? <button type="button" onClick={() => { setMode('support'); setPath([]); }}>Unterstützen …</button>
                   : <button type="button" onClick={() => setMode('move')}>Ziehen …</button>)}
-                {targeting && <button type="button" className={forageWhy ? 'muted' : ''} title={forageWhy || undefined} onClick={() => add({ kind: 'forage', army: selArmy.id })}>Fouragieren (+{forage})</button>}
-                <button type="button" className="ghost" aria-label="Auswahl aufheben" onClick={() => setArmySel(null)}>×</button>
+                {planning && selArmy && <button type="button" className={forageWhy ? 'muted' : ''} title={forageWhy || undefined} onClick={() => add({ kind: 'forage', army: selArmy.id })}>Fouragieren (+{forage})</button>}
+                <button type="button" className="ghost" aria-label="Auswahl aufheben" onClick={clearSel}>×</button>
               </div>
             </div>
           )}
 
-          {show && c.reveal && !(show === 'conflicts' && card) && (
+          {show && rv && !(show === 'conflicts' && card) && (
             <div role="status" style={{
-              position: 'absolute', top: 16, left: 0, right: 0, margin: '0 auto', width: 'max-content', maxWidth: 'calc(100% - 32px)', zIndex: 6,
+              position: 'absolute', top: 16, left: LEFT, right: 0, margin: '0 auto', width: 'max-content', maxWidth: 'calc(100% - 32px)', zIndex: 6,
               display: 'flex', gap: 14, alignItems: 'center', padding: '10px 18px', borderRadius: 10,
               background: 'color-mix(in srgb, var(--hull) 92%, transparent)', border: '1px solid var(--brass)', boxShadow: '0 10px 30px rgba(0,0,0,.4)',
             }}>
-              <span style={{ fontFamily: 'var(--display)', fontSize: 18, color: 'var(--brass)' }}>Runde {c.reveal.round}</span>
-              <span>{show === 'orders' ? 'Die Befehle beider Häuser werden aufgedeckt.' : show === 'conflicts' ? `${explained.length === 1 ? 'Ein Konflikt' : `${explained.length} Konflikte`} in dieser Runde.` : 'Die Heere ziehen …'}</span>
-              {show === 'orders' && <button type="button" onClick={() => setShow('advance')}>Heere ziehen lassen</button>}
+              <span style={{ fontFamily: 'var(--display)', fontSize: 18, color: 'var(--brass)' }}>Runde {rv.round}</span>
+              <span>{show === 'orders' ? 'Die Befehle beider Häuser werden aufgedeckt.' : show === 'walk' ? `Die Heere ziehen · Schritt ${Math.min(step, walkLen - 1)} von ${walkLen - 1}` : show === 'conflicts' ? `${explained.length === 1 ? 'Ein Konflikt' : `${explained.length} Konflikte`} in dieser Runde.` : 'Alle sind angekommen.'}</span>
+              {show === 'orders' && <button type="button" onClick={() => setShow('walk')}>Heere ziehen lassen</button>}
+              {show === 'walk' && <button type="button" className="ghost" onClick={() => setShow('settle')}>Überspringen</button>}
             </div>
           )}
         </div>
 
         <div className="stack" style={LEFT_PANEL}>
-          {city
-            ? <CityPanel c={c} prov={city} house={h} giving={giving} draft={draft} why={why} add={add}
-                orderIndex={cityOrder(city)} onRemove={(i) => setDraft(draft.filter((_, j) => j !== i))} onClose={() => setCity(null)} />
-            : <Overview key={h} c={c} house={h} giving={giving} draft={draft} onArmy={onArmy} onCity={(id) => { setSel(id); openCity(id); }} />}
+          {panel.kind === 'city'
+            ? <CityPanel c={c} prov={panel.prov} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
+                onPickSite={(b) => { clearSel(); setBuildMode(b); }} />
+            : panel.kind === 'hex'
+              ? <HexPanel c={c} hex={panel.hex} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
+                  onCity={(p) => setPanel({ kind: 'city', prov: p })} />
+              : <Overview key={h} c={c} house={h} giving={giving} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
+                  onCity={(p) => { setPanel({ kind: 'city', prov: p }); }} />}
         </div>
 
         {msg && <div className="toast" role="alert" style={{ top: 76 }}>{msg}</div>}
@@ -380,10 +451,10 @@ export default function Campaign() {
               const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
               return (
                 <div key={b.id} className="card stack" style={{ gap: 6 }}>
-                  <b>{b.field ? 'Feldschlacht' : 'Schlacht'} um {PROV[b.prov].n}</b>
+                  <b>{b.field ? 'Feldschlacht' : 'Schlacht'} bei {hexName(b.hex)}</b>
                   <span className="rule">{b.field
-                    ? `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) trifft auf ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) im Feld · ${LAND[PROV[b.prov].land].n}. ${HOUSES[att.house].n} führt die Offiziere.`
-                    : `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) greift ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) an · ${LAND[PROV[b.prov].land].n}`}</span>
+                    ? `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) trifft auf ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) im Feld · ${LAND[hexLand(b.hex)].n}. ${HOUSES[att.house].n} führt die Offiziere.`
+                    : `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) greift ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) an · ${LAND[hexLand(b.hex)].n}`}</span>
                   <div className="row">
                     <button type="button" className="primary" onClick={() => setBattle({ id: b.id, st: battleGame(c, b.id, Math.random) })}>Auf dem Brett austragen</button>
                     <button type="button" onClick={() => setC(autoBattle(c, b.id, Math.random))}>Auswürfeln</button>
@@ -397,31 +468,22 @@ export default function Campaign() {
         {giving && (
           <div className="card stack" style={{ gap: 6 }}>
             <b>Befehle von {HOUSES[h].n}</b>
-            {draft.length === 0 && <span className="rule">Tippe die Fahne eines Heeres an, um es zu befehligen, oder ein Stadtfeld für das Stadtmenü.</span>}
+            {draft.length === 0 && <span className="rule">Tippe die Fahne eines Heeres an und lege seinen Weg über die Hexfelder fest. Felder und Städte öffnest du mit einem Klick aufs Feld.</span>}
             {draft.map((o, i) => (
               <div key={i} className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
-                <span>{describe(c, o)}</span>
-                <button type="button" className="ghost" aria-label="Befehl entfernen" onClick={() => setDraft(draft.filter((_, j) => j !== i))}>×</button>
+                <span>{describe(c, h, o)}</span>
+                <button type="button" className="ghost" aria-label="Befehl entfernen" onClick={() => removeOrder(i)}>×</button>
               </div>
             ))}
             {idle.length > 0 && draft.length < ORDERS_PER_ROUND && (
               <div className="stack" style={{ gap: 4, padding: '8px 10px', borderRadius: 8, background: 'color-mix(in srgb, var(--brass) 10%, transparent)', border: '1px dashed var(--brass)' }}>
                 <span style={{ fontSize: 13 }}>{idle.length === 1 ? '1 Heer hat' : `${idle.length} Heere haben`} noch keinen Befehl und {idle.length === 1 ? 'hält' : 'halten'} sonst die Stellung:</span>
                 <div className="row" style={{ gap: 6 }}>
-                  {idle.map((a) => <button key={a.id} type="button" onClick={() => onArmy(a.id)}>{PROV[a.prov].n} ({a.size})</button>)}
+                  {idle.map((a) => <button key={a.id} type="button" onClick={() => selectArmy(a.id)}>{hexName(a.hex)} ({a.size})</button>)}
                 </div>
               </div>
             )}
             <button type="button" className="primary" onClick={seal}>Befehle versiegeln</button>
-          </div>
-        )}
-
-        {sel && !PROV[sel].city && (
-          <div className="card stack" style={{ gap: 4 }}>
-            <h2>{PROV[sel].n}</h2>
-            <span className="rule">{LAND[PROV[sel].land].n} · {c.owner[sel] ? HOUSES[c.owner[sel]!].n : 'unbeansprucht'}</span>
-            <span className="rule">{LAND[PROV[sel].land].note}</span>
-            {armyAt(c, sel) && <span>Heer von {HOUSES[armyAt(c, sel)!.house].n}: {armyAt(c, sel)!.size} Figuren</span>}
           </div>
         )}
 
@@ -439,7 +501,7 @@ export default function Campaign() {
         )}
         <div className="card stack" style={{ gap: 4 }}>
           <div className="lbl">Bericht</div>
-          {before ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-14).map((l, i) => <span key={i} className="rule">{l}</span>)}
+          {walking ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-16).map((l, i) => <span key={i} className="rule">{l}</span>)}
         </div>
         <span className="rule" style={{ fontSize: 12 }}>Alle Begriffe und Regeln stehen im Feldbuch hinter dem goldenen ?.</span>
         <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>
@@ -452,10 +514,10 @@ function ConflictCard({ e, index, count, pos, onPrev, onNext, onClose, finalLabe
   e: Explanation; index: number; count: number; pos: { x: number; y: number; w: number; h: number };
   onPrev: () => void; onNext: () => void; onClose: () => void; finalLabel: string;
 }) {
-  const W = 340;
-  const right = pos.x + 60 + W < pos.w - 12;
-  const left = right ? pos.x + 60 : Math.max(12, pos.x - 60 - W);
-  const top = Math.max(12, Math.min(pos.y - 90, pos.h - 450));
+  const W = 310, gap = 44;
+  const roomRight = pos.w - 12 - (pos.x + gap), roomLeft = pos.x - gap - (LEFT + 12);
+  const left = roomRight >= W || roomRight >= roomLeft ? Math.min(pos.x + gap, pos.w - 12 - W) : Math.max(LEFT + 12, pos.x - gap - W);
+  const top = Math.max(12, Math.min(pos.y - 90, pos.h - 460));
   const last = index + 1 >= count;
   return (
     <div role="dialog" aria-label={e.title} className="card stack" style={{
@@ -464,7 +526,7 @@ function ConflictCard({ e, index, count, pos, onPrev, onNext, onClose, finalLabe
     }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
         <div className="stack" style={{ gap: 0 }}>
-          <span className="lbl">Konflikt {index + 1} von {count}</span>
+          <span className="lbl">Konflikt {index + 1} von {count} · Schritt {e.step}</span>
           <b style={{ fontFamily: 'var(--display)', fontSize: 18 }}>{e.title}</b>
         </div>
         <button type="button" className="ghost" aria-label="Schließen" onClick={onClose}>×</button>
@@ -491,77 +553,6 @@ function Stat({ label, value, title }: { label: string; value: string | number; 
     <div title={title} style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 34 }}>
       <span style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</span>
       <b style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</b>
-    </div>
-  );
-}
-
-function CityPanel({ c, prov, house, giving, draft, why, add, orderIndex, onRemove, onClose }: {
-  c: CampaignState; prov: string; house: House; giving: boolean; draft: Order[]; why: (o: Order) => string; add: (o: Order) => void;
-  orderIndex: number; onRemove: (i: number) => void; onClose: () => void;
-}) {
-  const p = PROV[prov];
-  const owner = c.owner[prov];
-  const mine = giving && owner === house;
-  const army = armyAt(c, prov);
-  const Act = ({ o, label, sub }: { o: Order; label: string; sub?: string }) => {
-    const w = why(o);
-    return (
-      <div className="stack" style={{ gap: 2 }}>
-        <button type="button" className={w ? 'muted' : ''} title={w || undefined} onClick={() => add(o)} style={{ textAlign: 'left' }}>{label}</button>
-        {(w || sub) && <span className="rule" style={{ fontSize: 12 }}>{w || sub}</span>}
-      </div>
-    );
-  };
-  return (
-    <div role="region" aria-label={`Stadt ${p.n}`} className="stack" style={{ gap: 12 }}>
-      <button type="button" className="ghost" onClick={onClose} style={{ alignSelf: 'flex-start', padding: '4px 8px' }}>‹ Übersicht</button>
-      <div className="stack" style={{ gap: 0 }}>
-        <span className="lbl">Stadt</span>
-        <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontWeight: 600 }}>{p.n}</h2>
-      </div>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="chip"><i style={{ background: owner ? HOUSES[owner].color : '#6E6A60' }} />{owner ? HOUSES[owner].n : 'unbeansprucht'}</span>
-        <span className="rule">· {LAND[p.land].n}</span>
-        {p.capital && <span className="rule">· Hauptstadt</span>}
-      </div>
-      <span className="rule">{army ? `Heer von ${HOUSES[army.house].n}: ${army.size} Figuren` : 'Kein Heer in der Stadt.'}</span>
-
-      {mine && orderIndex >= 0 && (
-        <div className="card promo stack" style={{ gap: 6 }}>
-          <span className="lbl">Befehl dieser Runde</span>
-          <span>{describe(c, draft[orderIndex])}</span>
-          <button type="button" onClick={() => onRemove(orderIndex)}>Befehl zurücknehmen</button>
-        </div>
-      )}
-      {mine && orderIndex < 0 && <span className="rule">Pro Stadt und Runde ein Befehl: bauen, rekrutieren oder ausbilden. Jeder zählt zu deinen {ORDERS_PER_ROUND} Befehlen.</span>}
-
-      <div className="stack" style={{ gap: 8 }}>
-        <span className="lbl">Gebäude</span>
-        {BUILDING_KEYS.map((b) => {
-          const built = hasBuilding(c, prov, b);
-          return (
-            <div key={b} className="card stack" style={{ gap: 4, padding: 10, borderColor: built ? 'var(--ok)' : 'var(--rope)' }}>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <b>{BUILDINGS[b].n}</b>
-                <span className="rule">{built ? 'gebaut' : `${BUILDINGS[b].cost} Gold`}</span>
-              </div>
-              <span className="rule" style={{ fontSize: 12 }}>{BUILDINGS[b].effect}</span>
-              {mine && !built && orderIndex < 0 && <Act o={{ kind: 'build', prov, b }} label={`${BUILDINGS[b].n} bauen`} />}
-            </div>
-          );
-        })}
-      </div>
-
-      {mine && orderIndex < 0 && (
-        <div className="stack" style={{ gap: 8 }}>
-          <span className="lbl">Truppen</span>
-          <Act o={{ kind: 'recruit', prov }} label={`${recruitSize(c, prov)} Figuren rekrutieren (${COST.recruit} Gold)`} sub="Die Rekruten stoßen nach dem Abmarsch zum Heer in der Stadt oder bilden ein neues." />
-          {(Object.keys(SPEC_NAME) as SpecKey[]).map((k) => (
-            <Act key={k} o={{ kind: 'train', prov, spec: k }} label={`${SPEC_NAME[k]} ausbilden (${COST.train} Gold)`}
-              sub={hasBuilding(c, prov, buildingFor(k)) ? undefined : `braucht ${BUILDINGS[buildingFor(k)].n}`} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

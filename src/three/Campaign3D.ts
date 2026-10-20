@@ -1,23 +1,29 @@
 import * as THREE from 'three';
-import { HEXES, HEX_R, HOUSES, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexSides, inGrid, provCenter, type House, type Land } from '../campaign/map.ts';
-import type { CArmy, Campaign, Order, Tone } from '../campaign/engine.ts';
+import {
+  CITY_HEX, HEX, HEXES, HEX_R, HOUSES, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexCenter, hexLand, hexSides, hk, inGrid, provCenter,
+  type HexKey, type House, type Land,
+} from '../campaign/map.ts';
+import { buildingActive, buildingOwnerOf, type Campaign, type Order, type SpecKey, type Tone } from '../campaign/engine.ts';
+import { AGENT_ABBR, BUILDING_ICON } from '../campaign/CampaignMap.tsx';
 
 // 3D view of the campaign map. Same inputs as the SVG map; the rules engine is untouched.
 
 export interface MapView {
   c: Campaign;
-  selected: string | null;
-  targets: string[];
+  selectedHex: HexKey | null;
+  selectedUnit?: string | null;
+  reach?: Record<HexKey, number>;
+  plan?: { from: HexKey; path: HexKey[]; house: House } | null;
   orders: Order[];
-  selectedArmy?: string | null;
-  labels?: Record<string, { text: string; tone: Tone }>;
-  focus?: string[];
+  labels?: Record<HexKey, { text: string; tone: Tone }>;
+  focus?: HexKey[];
   posOverride?: Record<string, [number, number]>;
 }
 export interface MapHandlers {
-  onProvince: (id: string) => void;
+  onHex: (k: HexKey) => void;
   onArmy: (id: string) => void;
-  /** Called while the camera moves, so overlays anchored to provinces can follow. */
+  onAgent: (id: string) => void;
+  /** Called while the camera moves, so overlays anchored to fields can follow. */
   onCamera?: () => void;
 }
 export type CameraPose = 'uebersicht' | 'feldherr' | 'nah';
@@ -39,6 +45,7 @@ const SIDE: Record<House | 'N', number> = { R: 0x6e2723, K: 0x24457c, N: 0x56452
 const TONE: Record<Tone, string> = { ok: '#2F6E40', risk: '#8C5A12', bad: '#7E2621', plain: '#2A3F55' };
 
 const provHeight = (id: string) => HEIGHT[hexAt(...PROV[id].seed).land!];
+const hexHeight = (k: HexKey) => HEIGHT[hexLand(k)];
 
 function canvasSprite(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, worldH: number) {
   const cv = document.createElement('canvas'); cv.width = w * 2; cv.height = h * 2;
@@ -69,6 +76,21 @@ function flagSprite(house: House, size: number, spec: number, mark: string | und
   }, 0.95);
 }
 
+function agentSprite(house: House, spec: SpecKey, selected: boolean) {
+  return canvasSprite(30, 30, (g) => {
+    if (selected) { g.strokeStyle = '#E2C27F'; g.lineWidth = 2.5; g.beginPath(); g.arc(15, 15, 14, 0, Math.PI * 2); g.stroke(); }
+    g.fillStyle = '#F1E8D2'; g.strokeStyle = HOUSES[house].color; g.lineWidth = 3.5; g.beginPath(); g.arc(15, 15, 10.5, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = '#1E1A15'; g.font = '800 10px Figtree, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(AGENT_ABBR[spec], 15, 16);
+  }, 0.5);
+}
+function traderSprite(house: House, gold: number) {
+  return canvasSprite(44, 26, (g) => {
+    g.fillStyle = '#C9A15A'; g.strokeStyle = HOUSES[house].color; g.lineWidth = 2.5; rr(g, 4, 5, 22, 11, 2); g.fill(); g.stroke();
+    g.fillStyle = '#3B2F22'; g.beginPath(); g.arc(9, 19, 3.5, 0, Math.PI * 2); g.arc(21, 19, 3.5, 0, Math.PI * 2); g.fill();
+    g.font = '800 11px Figtree, sans-serif'; g.lineWidth = 3; g.strokeStyle = '#1E1A15'; g.strokeText(String(gold), 32, 14); g.fillStyle = '#F3EAD4'; g.fillText(String(gold), 32, 14);
+  }, 0.4);
+}
+
 function textSprite(text: string, opts: { font: string; fill: string; stroke?: string; bg?: string; pad?: number }, worldH: number) {
   const probe = document.createElement('canvas').getContext('2d')!; probe.font = opts.font;
   const pad = opts.pad ?? 6;
@@ -88,10 +110,10 @@ export class Campaign3D {
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
   private sea: THREE.Mesh;
-  private cols: { mesh: THREE.Mesh; prov: string }[] = [];
+  private cols: { mesh: THREE.Mesh; prov: string; hex: HexKey }[] = [];
   private sideMat: Record<House | 'N', THREE.MeshStandardMaterial>;
   private dyn = new THREE.Group();
-  private armies = new Map<string, { obj: THREE.Group; to: THREE.Vector3; key: string }>();
+  private units = new Map<string, { obj: THREE.Group; to: THREE.Vector3; key: string }>();
   private armyGroup = new THREE.Group();
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -152,8 +174,8 @@ export class Campaign3D {
       const [x, z] = toW(...center(h.c, h.r));
       m.position.set(x, height / 2, z);
       m.castShadow = true; m.receiveShadow = true;
-      m.userData.prov = h.prov;
-      s.add(m); this.cols.push({ mesh: m, prov: h.prov });
+      m.userData.hex = hk(h.c, h.r);
+      s.add(m); this.cols.push({ mesh: m, prov: h.prov, hex: hk(h.c, h.r) });
       // a little scenery
       if (h.land === 'G' && !isCity) {
         for (let i = 0; i < 2; i++) {
@@ -213,7 +235,7 @@ export class Campaign3D {
     this.ro.observe(host);
     this.resize();
     this.raf = requestAnimationFrame(this.loop);
-    document.fonts?.ready.then(() => { this.dynKey = ''; this.armies.forEach((a) => (a.key = '')); if (this.view) this.update(this.view); });
+    document.fonts?.ready.then(() => { this.dynKey = ''; this.units.forEach((a) => (a.key = '')); if (this.view) this.update(this.view); });
   }
 
   dispose() {
@@ -272,17 +294,19 @@ export class Campaign3D {
       o.tTheta = house === 'K' ? 0.5 : -0.5; o.tPhi = 0.95; o.tRad = 11; o.tLook.set(x, provHeight(cap.id), z);
     }
   }
-  /** Fly the camera to a province (e.g. the conflict being explained). */
-  flyTo(prov: string) {
-    const [x, z] = toW(...provCenter(prov));
+  /** Fly the camera to a field (e.g. the conflict being explained). */
+  flyTo(hex: HexKey) {
+    const [x, z] = toW(...hexCenter(hex));
     const o = this.orbit;
-    o.tLook.set(x + 1.6, provHeight(prov), z); o.tRad = Math.min(o.tRad, 15); if (o.tPhi < 0.6) o.tPhi = 0.85;
+    // look a little to the right of the field so it sits left of centre and the card fits beside it
+    const k = 2.6, rx = Math.cos(o.tTheta), rz = -Math.sin(o.tTheta);
+    o.tLook.set(x + rx * k, hexHeight(hex), z + rz * k); o.tRad = Math.min(o.tRad, 21); if (o.tPhi < 0.6) o.tPhi = 0.85;
   }
 
-  /** Screen position of a province relative to the host element. */
-  project(prov: string): [number, number] | null {
-    const [x, z] = toW(...provCenter(prov));
-    const v = new THREE.Vector3(x, provHeight(prov) + 0.4, z).project(this.camera);
+  /** Screen position of a field relative to the host element. */
+  project(hex: HexKey): [number, number] | null {
+    const [x, z] = toW(...hexCenter(hex));
+    const v = new THREE.Vector3(x, hexHeight(hex) + 0.4, z).project(this.camera);
     if (v.z > 1) return null;
     return [(v.x + 1) / 2 * this.host.clientWidth, (1 - v.y) / 2 * this.host.clientHeight];
   }
@@ -291,17 +315,18 @@ export class Campaign3D {
     this.view = v;
     this.setMood(v.c.round);
     // owner colours on the column sides
-    const ok = JSON.stringify(v.c.owner);
+    const ok = JSON.stringify(v.c.hexOwner);
     if (ok !== this.ownerKey) {
       this.ownerKey = ok;
-      for (const col of this.cols) (col.mesh.material as THREE.Material[])[0] = this.sideMat[v.c.owner[col.prov] ?? 'N'];
+      for (const col of this.cols) (col.mesh.material as THREE.Material[])[0] = this.sideMat[v.c.hexOwner[col.hex] ?? 'N'];
     }
     this.updateDyn(v);
-    this.updateArmies(v);
+    this.updateUnits(v);
   }
 
   private updateDyn(v: MapView) {
-    const key = JSON.stringify([v.c.owner, v.selected, v.targets, v.orders, v.labels, v.focus, v.c.battles.map((b) => [b.prov, b.attacker]), v.c.armies.map((a) => [a.id, a.prov])]);
+    const key = JSON.stringify([v.c.hexOwner, v.c.owner, v.c.buildings, v.c.buildingOwner, v.selectedHex, v.reach, v.plan, v.orders, v.labels, v.focus,
+      v.c.battles.map((b) => [b.hex, b.from]), v.c.armies.map((a) => [a.id, a.hex]), v.c.agents.map((a) => [a.id, a.hex])]);
     if (key === this.dynKey) return;
     this.dynKey = key;
     for (const o of [...this.dyn.children]) {
@@ -309,27 +334,25 @@ export class Campaign3D {
       o.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose?.(); const mat = m.material as THREE.SpriteMaterial | undefined; mat?.map?.dispose(); mat?.dispose?.(); });
     }
     const add = (o: THREE.Object3D) => this.dyn.add(o);
-    // highlights: selection, targets, focus
-    const cap = (prov: string, color: number, opacity: number) => {
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
-      for (const h of HEXES) if (h.prov === prov && h.land) {
-        const [x, z] = toW(...center(h.c, h.r));
-        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.97, 0.97, 0.02, 6), mat);
-        m.position.set(x, HEIGHT[h.land] + 0.015, z); m.userData.prov = prov; add(m);
-      }
+    const capMat = (color: number, opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+    const cap = (k: HexKey, mat: THREE.Material, r = 0.97) => {
+      const [x, z] = toW(...hexCenter(k));
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.02, 6), mat);
+      m.position.set(x, hexHeight(k) + 0.015, z); m.userData.hex = k; add(m);
     };
-    for (const t of v.targets) cap(t, 0x7fe3ff, 0.32);
-    if (v.selected) cap(v.selected, 0xe2c27f, 0.25);
-    // house borders: only outer edges of each realm
+    if (v.reach) { const mat = capMat(0x7fe3ff, 0.3); for (const k of Object.keys(v.reach)) if (k !== v.plan?.from) cap(k, mat, 0.9); }
+    if (v.selectedHex && HEX[v.selectedHex]) cap(v.selectedHex, capMat(0xe2c27f, 0.3));
+    // realm borders follow the owned fields
     for (const hs of ['R', 'K'] as House[]) {
       const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(HOUSES[hs].color) });
-      for (const h of HEXES) {
-        if (!h.prov || v.c.owner[h.prov] !== hs) continue;
+      for (const k of Object.keys(HEX)) {
+        if (v.c.hexOwner[k] !== hs) continue;
+        const h = HEX[k];
         const [cx, cz] = toW(...center(h.c, h.r));
         for (const sd of hexSides(h.c, h.r)) {
-          const n = inGrid(...sd.n) ? hexAt(...sd.n) : null;
-          if (n?.prov && v.c.owner[n.prov] === hs) continue;
-          add(this.ribbon(sd.a, sd.b, HEIGHT[h.land!] + 0.03, 0.11, mat, 0.08, cx, cz));
+          const n = inGrid(...sd.n) ? hk(...sd.n) : null;
+          if (n && HEX[n] && v.c.hexOwner[n] === hs) continue;
+          add(this.ribbon(sd.a, sd.b, HEIGHT[h.land!] + 0.03, 0.09, mat, 0.07, cx, cz));
         }
       }
     }
@@ -337,13 +360,9 @@ export class Campaign3D {
     if (v.focus?.length) {
       const mat = new THREE.MeshBasicMaterial({ color: 0xf3d27a, transparent: true, opacity: 1 });
       const g = new THREE.Group(); g.userData.pulse = true;
-      for (const h of HEXES) {
-        if (!h.prov || !v.focus.includes(h.prov)) continue;
-        for (const sd of hexSides(h.c, h.r)) {
-          const n = inGrid(...sd.n) ? hexAt(...sd.n) : null;
-          if (n?.prov === h.prov) continue;
-          g.add(this.ribbon(sd.a, sd.b, HEIGHT[h.land!] + 0.1, 0.2, mat));
-        }
+      for (const k of v.focus) {
+        const h = HEX[k]; if (!h) continue;
+        for (const sd of hexSides(h.c, h.r)) g.add(this.ribbon(sd.a, sd.b, HEIGHT[h.land!] + 0.1, 0.16, mat));
       }
       add(g);
     }
@@ -356,99 +375,116 @@ export class Campaign3D {
         if (p.capital) { g.fillStyle = '#E2C27F'; g.strokeStyle = '#3B2F22'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(8, 9); g.lineTo(10, 2); g.lineTo(14, 6); g.lineTo(18, 2); g.lineTo(20, 9); g.closePath(); g.fill(); g.stroke(); }
         g.fillStyle = o ? HOUSES[o].color : '#6E6A60'; g.strokeStyle = '#F1E8D2'; g.lineWidth = 1.6;
         g.beginPath(); g.moveTo(6, 12); g.lineTo(22, 12); g.lineTo(22, 20); g.quadraticCurveTo(22, 28, 14, 31); g.quadraticCurveTo(6, 28, 6, 20); g.closePath(); g.fill(); g.stroke();
-      }, 0.55);
-      sh.position.set(x - 0.75, provHeight(p.id) + 0.95, z - 0.35); add(sh);
+      }, 0.5);
+      sh.position.set(x - 0.6, provHeight(p.id) + 1.0, z - 0.45); add(sh);
     }
-    // order arrows as raised arcs
-    for (const o of v.orders) {
-      if (o.kind !== 'move' && o.kind !== 'support') continue;
-      const a = v.c.armies.find((x) => x.id === o.army);
-      if (!a || a.prov.startsWith('@')) continue;
-      const to = o.kind === 'move' ? o.to : o.target;
-      const [x1, z1] = toW(...provCenter(a.prov)), [x2, z2] = toW(...provCenter(to));
-      const y1 = provHeight(a.prov) + 0.35, y2 = provHeight(to) + 0.35;
-      const end = new THREE.Vector3(x1 + (x2 - x1) * 0.84, y1 + (y2 - y1) * 0.84, z1 + (z2 - z1) * 0.84);
-      const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(x1, y1, z1), new THREE.Vector3((x1 + x2) / 2, Math.max(y1, y2) + 1.1, (z1 + z2) / 2), end);
-      const col = new THREE.Color(HOUSES[a.house].color);
-      const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.35, transparent: o.kind === 'support', opacity: o.kind === 'support' ? 0.7 : 1 });
-      add(new THREE.Mesh(new THREE.TubeGeometry(curve, 24, o.kind === 'move' ? 0.07 : 0.035, 8), mat));
-      const head = new THREE.Mesh(new THREE.ConeGeometry(o.kind === 'move' ? 0.18 : 0.11, 0.38, 10), mat);
-      head.position.copy(end);
+    // buildings as small round signs on their field
+    for (const [k, b] of Object.entries(v.c.buildings)) {
+      const active = buildingActive(v.c, k), o = buildingOwnerOf(v.c, k);
+      const [x, z] = toW(...hexCenter(k));
+      const sp = canvasSprite(30, 30, (g) => {
+        g.globalAlpha = active ? 1 : 0.65;
+        g.fillStyle = '#F3EAD4'; g.strokeStyle = o ? HOUSES[o].color : '#6E6A60'; g.lineWidth = 3; g.beginPath(); g.arc(15, 15, 12, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = '#2A2118'; g.font = '700 14px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(BUILDING_ICON[b], 15, 16);
+        if (!active) { g.strokeStyle = '#A8322D'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(6, 24); g.lineTo(24, 6); g.stroke(); }
+      }, 0.45);
+      sp.position.set(x + (CITY_HEX[k] ? 0.55 : 0), hexHeight(k) + 0.45, z - (CITY_HEX[k] ? 0.4 : 0.35)); add(sp);
+    }
+    // ways as raised ribbons along the fields
+    const way = (from: HexKey, path: HexKey[], color: THREE.Color | number, radius: number, opacity = 1) => {
+      const ptsW = [from, ...path].map((k) => { const [x, z] = toW(...hexCenter(k)); return new THREE.Vector3(x, hexHeight(k) + 0.35, z); });
+      if (ptsW.length < 2) return;
+      const curve = new THREE.CatmullRomCurve3(ptsW, false, 'centripetal', 0.3);
+      const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, transparent: opacity < 1, opacity });
+      add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(8, ptsW.length * 8), radius, 8), mat));
+      const head = new THREE.Mesh(new THREE.ConeGeometry(radius * 2.6, radius * 5.5, 10), mat);
+      head.position.copy(ptsW[ptsW.length - 1]);
       head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangent(1).normalize());
       add(head);
+    };
+    for (const o of v.orders) {
+      if (o.kind === 'move') { const a = v.c.armies.find((x) => x.id === o.army); if (a) way(a.hex, o.path, new THREE.Color(HOUSES[a.house].color), 0.07); }
+      if (o.kind === 'agent') { const g = v.c.agents.find((x) => x.id === o.agent); if (g) way(g.hex, o.path, new THREE.Color(HOUSES[g.house].color), 0.04, 0.75); }
+      if (o.kind === 'support') { const a = v.c.armies.find((x) => x.id === o.army); if (a) way(a.hex, [o.target], new THREE.Color(HOUSES[a.house].color), 0.035, 0.6); }
     }
-    // preview signs on targets
-    for (const [id, l] of Object.entries(v.labels ?? {})) {
+    if (v.plan && v.plan.path.length) way(v.plan.from, v.plan.path, 0xf3d27a, 0.08);
+    // signs on fields
+    for (const [k, l] of Object.entries(v.labels ?? {})) {
       if (!l.text) continue;
-      const [x, z] = toW(...provCenter(id));
-      const sp = textSprite(l.text, { font: '700 12px Figtree, sans-serif', fill: '#FFF8EC', bg: TONE[l.tone], pad: 8 }, 0.56);
-      sp.position.set(x, provHeight(id) + 1.65, z); sp.renderOrder = 5; add(sp);
+      const [x, z] = toW(...hexCenter(k));
+      const sp = textSprite(l.text, { font: '700 12px Figtree, sans-serif', fill: '#FFF8EC', bg: TONE[l.tone], pad: 8 }, 0.5);
+      sp.position.set(x, hexHeight(k) + 1.55, z); sp.renderOrder = 5; add(sp);
     }
-    // battle markers
+    // battle markers between the two sides
     for (const b of v.c.battles) {
-      const [x, z] = toW(...provCenter(b.prov));
+      const [x1, z1] = toW(...hexCenter(b.from)), [x2, z2] = toW(...hexCenter(b.hex));
       const sw = canvasSprite(30, 30, (g) => {
         g.fillStyle = '#1E1A15'; g.strokeStyle = '#E2C27F'; g.lineWidth = 2; g.beginPath(); g.arc(15, 15, 12, 0, Math.PI * 2); g.fill(); g.stroke();
         g.strokeStyle = '#F1E3BE'; g.lineCap = 'round'; g.beginPath(); g.moveTo(9, 9); g.lineTo(21, 21); g.moveTo(21, 9); g.lineTo(9, 21); g.stroke();
       }, 0.5);
-      sw.position.set(x - 0.45, provHeight(b.prov) + 1.35, z); add(sw);
+      sw.position.set((x1 + x2) / 2, Math.max(hexHeight(b.from), hexHeight(b.hex)) + 1.4, (z1 + z2) / 2); add(sw);
     }
   }
 
-  private armyPos(a: CArmy, v: MapView): THREE.Vector3 {
-    const battle = v.c.battles.find((b) => b.attacker === a.id);
-    const field = v.c.battles.find((b) => b.field && b.defender === a.id);
-    const prov = battle ? battle.prov : field ? field.prov : a.prov;
-    const o = v.posOverride?.[a.id];
-    const [x, z] = o ? toW(...o) : toW(...provCenter(prov));
-    const h = o ? 0.6 : provHeight(prov);
-    return new THREE.Vector3(x - (battle ? 1.1 : 0), h + 0.75, z);
+  private unitPos(id: string, hex: HexKey, v: MapView, dx = 0, dz = 0, lift = 0.75): THREE.Vector3 {
+    const o = v.posOverride?.[id];
+    const [x, z] = toW(...(o ?? hexCenter(hex)));
+    return new THREE.Vector3(x + dx, (o ? 0.55 : hexHeight(hex)) + lift, z + dz);
   }
 
-  private updateArmies(v: MapView) {
+  private updateUnits(v: MapView) {
     const marks: Record<string, string> = {};
     for (const o of v.orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
     const seen = new Set<string>();
-    for (const a of v.c.armies) {
-      if (a.prov.startsWith('@') && !v.c.battles.some((b) => b.attacker === a.id || (b.field && b.defender === a.id))) continue;
-      seen.add(a.id);
-      const spec = a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR;
-      const key = [a.house, a.size, spec, marks[a.id] ?? '', v.selectedArmy === a.id].join('|');
-      let e = this.armies.get(a.id);
-      const to = this.armyPos(a, v);
-      if (!e) {
-        const obj = new THREE.Group();
-        obj.position.copy(to);
-        this.armyGroup.add(obj);
-        e = { obj, to, key: '' };
-        this.armies.set(a.id, e);
-      }
+    const place = (id: string, key: string, to: THREE.Vector3, build: (g: THREE.Group) => void) => {
+      seen.add(id);
+      let e = this.units.get(id);
+      if (!e) { const obj = new THREE.Group(); obj.position.copy(to); this.armyGroup.add(obj); e = { obj, to, key: '' }; this.units.set(id, e); }
       e.to = to;
       if (e.key !== key) {
         e.key = key;
-        for (const c of [...e.obj.children]) { e.obj.remove(c); const m = c as THREE.Sprite; m.material?.map?.dispose(); m.material?.dispose(); }
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75, 6), new THREE.MeshStandardMaterial({ color: 0x3b2a1a }));
-        pole.position.y = -0.38; pole.castShadow = true; e.obj.add(pole);
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.06, 12), new THREE.MeshStandardMaterial({ color: new THREE.Color(HOUSES[a.house].color) }));
-        base.position.y = -0.74; base.castShadow = true; e.obj.add(base);
-        const f = flagSprite(a.house, a.size, spec, marks[a.id], v.selectedArmy === a.id);
-        f.userData.army = a.id; f.renderOrder = 4; e.obj.add(f);
-        e.obj.userData.army = a.id;
+        for (const ch of [...e.obj.children]) { e.obj.remove(ch); const m = ch as THREE.Sprite; m.material?.map?.dispose(); m.material?.dispose(); }
+        build(e.obj);
       }
+    };
+    for (const a of v.c.armies) {
+      const spec = a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR;
+      place(a.id, ['A', a.house, a.size, spec, marks[a.id] ?? '', v.selectedUnit === a.id].join('|'), this.unitPos(a.id, a.hex, v), (g) => {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75, 6), new THREE.MeshStandardMaterial({ color: 0x3b2a1a }));
+        pole.position.y = -0.38; pole.castShadow = true; g.add(pole);
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.06, 12), new THREE.MeshStandardMaterial({ color: new THREE.Color(HOUSES[a.house].color) }));
+        base.position.y = -0.74; base.castShadow = true; g.add(base);
+        const f = flagSprite(a.house, a.size, spec, marks[a.id], v.selectedUnit === a.id);
+        f.userData.army = a.id; f.renderOrder = 4; g.add(f);
+        g.userData.army = a.id;
+      });
     }
-    for (const [id, e] of this.armies) if (!seen.has(id)) { this.armyGroup.remove(e.obj); this.armies.delete(id); }
+    for (const ag of v.c.agents) {
+      place(ag.id, ['G', ag.house, ag.spec, v.selectedUnit === ag.id].join('|'), this.unitPos(ag.id, ag.hex, v, 0.45, 0.4, 0.35), (g) => {
+        const sp = agentSprite(ag.house, ag.spec, v.selectedUnit === ag.id);
+        sp.userData.agent = ag.id; sp.renderOrder = 4; g.add(sp);
+        g.userData.agent = ag.id;
+      });
+    }
+    for (const t of v.c.traders) {
+      place(t.id, ['T', t.house, t.gold].join('|'), this.unitPos(t.id, t.hex, v, -0.45, 0.45, 0.3), (g) => {
+        const sp = traderSprite(t.house, t.gold); sp.renderOrder = 3; g.add(sp);
+      });
+    }
+    for (const [id, e] of this.units) if (!seen.has(id)) { this.armyGroup.remove(e.obj); this.units.delete(id); }
   }
 
-  private hit(e: PointerEvent): { prov?: string; army?: string } | null {
+  private hit(e: PointerEvent): { hex?: HexKey; army?: string; agent?: string } | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(this.ndc, this.camera);
     const hits = this.ray.intersectObjects([this.armyGroup, ...this.cols.map((c) => c.mesh)], true);
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
-      while (o && !o.userData.army && !o.userData.prov) o = o.parent;
+      while (o && !o.userData.army && !o.userData.agent && !o.userData.hex) o = o.parent;
       if (o?.userData.army) return { army: o.userData.army };
-      if (o?.userData.prov) return { prov: o.userData.prov };
+      if (o?.userData.agent) return { agent: o.userData.agent };
+      if (o?.userData.hex) return { hex: o.userData.hex };
     }
     return null;
   }
@@ -482,7 +518,8 @@ export class Campaign3D {
     if (!wasClick) return;
     const h = this.hit(e);
     if (h?.army) this.handlers.onArmy(h.army);
-    else if (h?.prov) this.handlers.onProvince(h.prov);
+    else if (h?.agent) this.handlers.onAgent(h.agent);
+    else if (h?.hex) this.handlers.onHex(h.hex);
   };
   private onWheel = (e: WheelEvent) => { e.preventDefault(); this.orbit.tRad = Math.max(7, Math.min(36, this.orbit.tRad + e.deltaY * 0.012)); };
 
@@ -505,7 +542,7 @@ export class Campaign3D {
     this.camera.lookAt(o.look);
     const moved = Math.abs(o.theta + o.phi + o.rad + o.look.x + o.look.z + o.look.y - before) > 1e-4;
     // armies glide to their places
-    for (const e of this.armies.values()) e.obj.position.lerp(e.to, 0.06);
+    for (const e of this.units.values()) e.obj.position.lerp(e.to, 0.1);
     // the sea drifts, the focus outline pulses
     const t = (now - this.t0) / 1000;
     const map = (this.sea.material as THREE.MeshStandardMaterial).map!;

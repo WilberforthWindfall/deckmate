@@ -1,25 +1,15 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Campaign3D, MOODS, type CameraPose } from '../three/Campaign3D.ts';
-import type { Campaign, Order, Tone } from './engine.ts';
-import type { House } from './map.ts';
+import type { MapProps } from './CampaignMap.tsx';
+import type { HexKey, House } from './map.ts';
 
-interface Props {
-  c: Campaign;
-  selected: string | null;
-  targets: string[];
-  orders: Order[];
-  onProvince: (id: string) => void;
-  onArmy: (id: string) => void;
-  selectedArmy?: string | null;
-  labels?: Record<string, { text: string; tone: Tone }>;
-  focus?: string[];
-  posOverride?: Record<string, [number, number]>;
+type Props = Omit<MapProps, 'svgRef' | 'stepMs'> & {
   /** House whose view the camera poses use. */
   house: House;
-  /** Filled with a function that gives a province's position on screen (client coordinates). */
-  projector: MutableRefObject<((prov: string) => [number, number] | null) | null>;
+  /** Filled with a function that gives a field's position on screen (client coordinates). */
+  projector: MutableRefObject<((hex: HexKey) => [number, number] | null) | null>;
   onCamera?: () => void;
-}
+};
 
 const POSES: { k: CameraPose; n: string; t: string }[] = [
   { k: 'uebersicht', n: 'Übersicht', t: 'Die ganze Karte von oben' },
@@ -40,16 +30,17 @@ export default function CampaignMap3D(p: Props) {
     let m: Campaign3D;
     try {
       m = new Campaign3D(host.current, {
-        onProvince: (id) => handlers.current.onProvince(id),
-        onArmy: (id) => handlers.current.onArmy(id),
+        onHex: (k) => handlers.current.onHex(k),
+        onArmy: (id) => handlers.current.onArmy?.(id),
+        onAgent: (id) => handlers.current.onAgent?.(id),
         onCamera: () => handlers.current.onCamera?.(),
       });
     } catch (e) { console.error('[Deckmate] 3D-Karte', e); setFailed(true); return; }
     map.current = m;
     if (import.meta.env.DEV) (window as unknown as { __map3d?: Campaign3D }).__map3d = m;
     m.pose('feldherr', handlers.current.house);
-    p.projector.current = (prov) => {
-      const xy = m.project(prov);
+    p.projector.current = (hex) => {
+      const xy = m.project(hex);
       const r = host.current?.getBoundingClientRect();
       return xy && r ? [xy[0] + r.left, xy[1] + r.top] : null;
     };
@@ -57,7 +48,7 @@ export default function CampaignMap3D(p: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    map.current?.update({ c: p.c, selected: p.selected, targets: p.targets, orders: p.orders, selectedArmy: p.selectedArmy, labels: p.labels, focus: p.focus, posOverride: p.posOverride });
+    map.current?.update({ c: p.c, selectedHex: p.selectedHex, selectedUnit: p.selectedUnit, reach: p.reach, plan: p.plan, orders: p.orders, labels: p.labels, focus: p.focus, posOverride: p.posOverride });
   });
 
   const focus = p.focus?.[0];
