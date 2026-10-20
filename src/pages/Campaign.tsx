@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { watchGame } from '../online.ts';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
 import { battleResult } from '../game/battle.ts';
+import type { BattleOutcome } from '../campaign/engine.ts';
 import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
 import Overview from '../campaign/Overview.tsx';
@@ -37,14 +39,34 @@ const save = (c: CampaignState) => { try { localStorage.setItem(KEY, JSON.string
 const STEP_MS = 650;
 
 type Unit = { kind: 'army' | 'agent'; id: string };
+/** Online play: one house per player, state from Firestore, changes as transactions. */
+export interface OnlineSession {
+  id: string; me: House; c: CampaignState; names: Record<House, string | null>; name: string;
+  commit: (fn: (c: CampaignState, me: House) => CampaignState) => Promise<void>;
+  startBattle: (battleId: string) => Promise<string>;
+}
+const outcomeOf = (st: GameState): BattleOutcome | null => {
+  const r = battleResult(st);
+  return r ? { attackerWon: r.winner === 'O', attacker: { size: r.attacker.size, spec: r.attacker.spec }, defender: { size: r.defender.size }, retreat: false, how: 'auf dem Brett' } : null;
+};
 type Panel = { kind: 'overview' } | { kind: 'city'; prov: string } | { kind: 'hex'; hex: HexKey };
 
-export default function Campaign() {
-  const [c, setC] = useState<CampaignState>(() => saved() ?? newCampaign());
+export default function Campaign({ online }: { online?: OnlineSession } = {}) {
+  const nav = useNavigate();
+  const [localC, setC] = useState<CampaignState>(() => (online ? online.c : saved() ?? newCampaign()));
+  const c = online ? online.c : localC;
   /** Start dialog: shown when there is no saved campaign, or for a new one. */
-  const [setup, setSetup] = useState(() => !saved());
-  const [ready, setReady] = useState(false);
+  const [setup, setSetup] = useState(() => !online && !saved());
+  const [readyLocal, setReady] = useState(false);
+  const ready = online ? true : readyLocal;
   const [draft, setDraft] = useState<Order[]>([]);
+  // online: the draft survives a reload; the last reveal is shown once per browser
+  const draftKey = online ? `deckmate.kampagne.entwurf.${online.id}.${c.round}` : null;
+  useEffect(() => { if (draftKey) try { const s = localStorage.getItem(draftKey); setDraft(s ? JSON.parse(s) : []); } catch { /* ignore */ } }, [draftKey]);
+  useEffect(() => { if (draftKey) try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* ignore */ } }, [draft, draftKey]);
+  const seenKey = online ? `deckmate.kampagne.gesehen.${online.id}` : '';
+  const [seen, setSeen] = useState(() => { try { return Number(localStorage.getItem(seenKey) ?? 0) || 0; } catch { return 0; } });
+  const revealPending = !!c.reveal && (!online || c.reveal.round > seen);
   const [selHex, setSelHex] = useState<HexKey | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [path, setPath] = useState<HexKey[]>([]);
@@ -73,7 +95,7 @@ export default function Campaign() {
   const [banner, setBanner] = useState<number | null>(null);
   const shownRound = useRef(0);
 
-  useEffect(() => { if (!setup) save(c); }, [c, setup]);
+  useEffect(() => { if (!setup && !online) save(c); }, [c, setup]); // eslint-disable-line react-hooks/exhaustive-deps
   const clearSel = () => { setUnit(null); setPath([]); setMode('move'); setBuildMode(null); setSite(null); };
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setUnit(null); setPath([]); setBuildMode(null); setSite(null); setPanel({ kind: 'overview' }); } };
@@ -81,8 +103,13 @@ export default function Campaign() {
     return () => window.removeEventListener('keydown', esc);
   }, []);
   const walkLen = c.reveal ? Math.max(1, ...Object.values(c.reveal.walk ?? {}).map((w) => w.length)) : 1;
-  useEffect(() => { if (c.reveal && show === null) { setStep(0); setShow('orders'); } }, [c.reveal, show]);
-  const finishReveal = () => { setShow(null); setConf(null); setC((p) => ({ ...p, reveal: null })); };
+  useEffect(() => { if (revealPending && show === null) { setStep(0); setShow('orders'); } }, [revealPending, show]);
+  const finishReveal = () => {
+    setShow(null); setConf(null);
+    if (!online) { setC((p) => ({ ...p, reveal: null })); return; }
+    const r = c.reveal?.round ?? 0;
+    setSeen(r); try { localStorage.setItem(seenKey, String(r)); } catch { /* ignore */ }
+  };
   useEffect(() => {
     if (show === 'orders') { const t = setTimeout(() => setShow('walk'), 3000); return () => clearTimeout(t); }
     if (show === 'walk') {
@@ -95,8 +122,8 @@ export default function Campaign() {
     }
   }, [show, step]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!show && !c.reveal && c.phase === 'orders' && !ready && shownRound.current !== c.round) { shownRound.current = c.round; setBanner(c.round); }
-  }, [show, c.reveal, c.phase, c.round, ready]);
+    if (!show && !revealPending && c.phase === 'orders' && (online || !ready) && shownRound.current !== c.round) { shownRound.current = c.round; setBanner(c.round); }
+  }, [show, revealPending, c.phase, c.round, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const explained: Explanation[] = (c.conflicts ?? []).map(explain);
   const card = conf !== null ? explained[conf] ?? null : null;
   useLayoutEffect(() => {
@@ -120,9 +147,19 @@ export default function Campaign() {
   }, [card?.hex, view3d, camTick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (banner !== null) { const t = setTimeout(() => setBanner(null), 2600); return () => clearTimeout(t); } }, [banner]);
 
-  const h = c.current;
-  const giving = c.phase === 'orders' && ready && !show;
+  const h: House = online ? online.me : c.current;
+  const other: House = h === 'R' ? 'K' : 'R';
+  const waitingForOther = !!online && c.phase === 'orders' && c.sealed[h];
+  const giving = c.phase === 'orders' && ready && !show && !waitingForOther;
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 3200); };
+  /** Changes the campaign: locally right away, online as a transaction on the latest state. */
+  async function apply(fn: (p: CampaignState, me: House) => CampaignState): Promise<boolean> {
+    try {
+      if (online) await online.commit(fn);
+      else setC(fn(c, c.current));
+      return true;
+    } catch (e) { flash((e as Error).message); return false; }
+  }
 
   const why = (o: Order) => orderProblem(c, h, o, draft);
   function add(o: Order) {
@@ -210,11 +247,16 @@ export default function Campaign() {
     if (barTab && giving && (c.hexOwner[k] === h)) setSite(k);
   }
 
-  function seal() {
-    try {
-      const next = sealOrders(c, h, draft, Math.random);
-      setC(next); setDraft([]); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setReady(false);
-    } catch (e) { flash((e as Error).message); }
+  async function seal() {
+    const orders = draft;
+    if (await apply((p, me) => sealOrders(p, me, orders, Math.random))) {
+      setDraft([]); setSelHex(null); clearSel(); setPanel({ kind: 'overview' }); setReady(false);
+    }
+  }
+  const hasBattle = (p: CampaignState, id: string) => p.battles.some((x) => x.id === id);
+  async function boardBattle(id: string) {
+    if (!online) { setBattle({ id, st: battleGame(c, id, Math.random) }); return; }
+    try { nav(`/spiel/${await online.startBattle(id)}`); } catch (e) { flash((e as Error).message); }
   }
   function restart() { setSetup(true); }
   function begin(o: Parameters<typeof newCampaign>[0]) {
@@ -226,10 +268,8 @@ export default function Campaign() {
     if (!battle) return;
     const r = battleResult(battle.st);
     if (!r) return;
-    setC(applyBattle(c, battle.id, {
-      attackerWon: r.winner === 'O', attacker: { size: r.attacker.size, spec: r.attacker.spec }, defender: { size: r.defender.size },
-      retreat: false, how: 'auf dem Brett',
-    }));
+    const id = battle.id, out = outcomeOf(battle.st)!;
+    apply((p) => (hasBattle(p, id) ? applyBattle(p, id, out) : p));
     setBattle(null);
   }
 
@@ -251,7 +291,9 @@ export default function Campaign() {
   }
 
   const goldLeft = c.gold[h] - draft.reduce((g, o) => g + orderCost(c, h, o), 0);
-  const phaseText = show === 'conflicts' ? 'Konflikte der Runde' : show ? 'Befehle werden aufgedeckt' : c.phase === 'orders' ? (ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe') : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
+  const phaseText = show === 'conflicts' ? 'Konflikte der Runde' : show ? 'Befehle werden aufgedeckt' : c.phase === 'orders'
+    ? (waitingForOther ? `Warte auf ${HOUSES[other].n}` : online ? 'Deine Befehle' : ready ? `${HOUSES[h].n} gibt Befehle` : 'Übergabe')
+    : c.phase === 'battles' ? 'Schlachten' : 'Kampagne beendet';
 
   // signs on fields: expected outcome at the end of the way, or the support bonus
   const labels: Record<HexKey, { text: string; tone: Tone }> = {};
@@ -319,7 +361,7 @@ export default function Campaign() {
           <div className="row" style={{ gap: 10 }}>
             {(['R', 'K'] as House[]).map((x) => {
               const provs = PROVINCES.filter((p) => mapC.owner[p.id] === x);
-              const hidden = giving && x !== h;
+              const hidden = online ? x !== h && c.phase !== 'over' : giving && x !== h;
               const active = giving && x === h;
               return (
                 <div key={x} style={{
@@ -327,7 +369,10 @@ export default function Campaign() {
                   background: 'var(--hull-2)', border: `1px solid ${active ? HOUSES[x].color : 'var(--rope)'}`,
                 }}>
                   <span style={{ width: 12, height: 12, borderRadius: '50%', background: HOUSES[x].color, boxShadow: active ? `0 0 0 3px color-mix(in srgb, ${HOUSES[x].color} 35%, transparent)` : undefined }} />
-                  <b style={{ fontFamily: 'var(--display)' }}>{HOUSES[x].n}</b>
+                  <span className="stack" style={{ gap: 0, lineHeight: 1.1 }}>
+                    <b style={{ fontFamily: 'var(--display)' }}>{HOUSES[x].n}</b>
+                    {online && <span className="rule" style={{ fontSize: 11 }}>{online.names[x] ?? 'frei'}{x === h ? ' (du)' : ''}</span>}
+                  </span>
                   <Stat label="Gold" value={hidden ? '?' : active ? `${goldLeft}/${mapC.gold[x]}` : mapC.gold[x]} title={active ? 'Verfügbar nach geplanten Befehlen / gesamt' : undefined} />
                   <Stat label="Provinzen" value={provs.length} />
                   <Stat label="Städte" value={provs.filter((p) => p.city).length} />
@@ -439,7 +484,7 @@ export default function Campaign() {
             : panel.kind === 'hex'
               ? <HexPanel c={c} hex={panel.hex} house={h} giving={giving} draft={draft} add={add} remove={removeOrder} onBack={() => setPanel({ kind: 'overview' })}
                   onCity={(p) => setPanel({ kind: 'city', prov: p })} onBuild={openBuild} />
-              : <Overview key={h} c={mapC} house={h} giving={giving} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
+              : <Overview key={h} c={mapC} house={h} giving={giving} viewer={online ? h : giving ? h : null} draft={draft} onArmy={selectArmy} onAgent={selectAgent}
                   onCity={(p) => { setPanel({ kind: 'city', prov: p }); }} />}
         </div>
 
@@ -463,7 +508,7 @@ export default function Campaign() {
 
         {setup && <StartDialog onStart={begin} onCancel={saved() && c.phase !== 'over' ? () => setSetup(false) : undefined} />}
 
-        {c.phase === 'orders' && !ready && !show && banner === null && !setup && (
+        {!online && c.phase === 'orders' && !ready && !show && banner === null && !setup && (
           <div className="overlay" style={{ zIndex: 12 }}><div className="dialog">
             <h2>Runde {c.round}: {HOUSES[h].n}</h2>
             <p>Gib das Gerät an <b>{HOUSES[h].n}</b>. {HOUSES[OTHER[h]].n} schaut bitte weg, die Befehle sind geheim.</p>
@@ -484,7 +529,9 @@ export default function Campaign() {
                 ))}
               </div>
             )}
-            <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" onClick={() => setSetup(true)}>Neue Kampagne</button></div>
+            <div className="row" style={{ justifyContent: 'center' }}>{online
+              ? <Link to="/"><button type="button" className="primary">Zur Lobby</button></Link>
+              : <button type="button" className="primary" onClick={() => setSetup(true)}>Neue Kampagne</button>}</div>
             <div style={{ borderTop: '1px solid var(--rope)', marginTop: 16, paddingTop: 14, textAlign: 'left' }}>
               <h3 style={{ fontFamily: 'var(--display)', fontWeight: 500, margin: '0 0 8px' }}>Wie war die Kampagne?</h3>
               <FeedbackForm where="kampagne-ende" intro="Ein paar Sätze von dir helfen enorm: Was hat Spaß gemacht, was war zäh oder unklar, was fehlt?"
@@ -509,19 +556,28 @@ export default function Campaign() {
                   <span className="rule">{b.field
                     ? `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) trifft auf ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) im Feld · ${LAND[hexLand(b.hex)].n}. ${HOUSES[att.house].n} führt die Offiziere.`
                     : `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) greift ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) an · ${LAND[hexLand(b.hex)].n}`}</span>
-                  <div className="row">
-                    <button type="button" className="primary" onClick={() => setBattle({ id: b.id, st: battleGame(c, b.id, Math.random) })}>Auf dem Brett austragen</button>
-                    <button type="button" onClick={() => setC(autoBattle(c, b.id, Math.random))}>Auswürfeln</button>
-                  </div>
+                  {b.game
+                    ? <LinkedBattle gameId={b.game} onOpen={() => nav(`/spiel/${b.game}`)} onTake={(st) => { const out = outcomeOf(st); if (out) apply((p) => (hasBattle(p, b.id) ? applyBattle(p, b.id, out) : p)); }} />
+                    : <div className="row">
+                        <button type="button" className="primary" onClick={() => boardBattle(b.id)}>{online ? 'Auf dem Brett austragen (beide Spieler)' : 'Auf dem Brett austragen'}</button>
+                        <button type="button" onClick={() => apply((p) => (hasBattle(p, b.id) ? autoBattle(p, b.id, Math.random) : p))}>Auswürfeln</button>
+                      </div>}
                 </div>
               );
             })}
           </div>
         )}
 
+        {waitingForOther && !show && (
+          <div className="card promo stack" style={{ gap: 6 }}>
+            <b>Befehle versiegelt</b>
+            <span className="rule">Sobald {online!.names[other] ?? HOUSES[other].n} ({HOUSES[other].n}) versiegelt, wird die Runde aufgedeckt. Du kannst die Seite offen lassen oder später wiederkommen.</span>
+          </div>
+        )}
         {giving && (
           <div className="card stack" style={{ gap: 6 }}>
             <b>Befehle von {HOUSES[h].n}</b>
+            {online && c.sealed[other] && <span className="rule" style={{ fontSize: 12 }}>{HOUSES[other].n} hat schon versiegelt und wartet auf dich.</span>}
             {draft.length === 0 && <span className="rule">Tippe die Fahne eines Heeres an und lege seinen Weg über die Hexfelder fest. Felder und Städte öffnest du mit einem Klick aufs Feld.</span>}
             {draft.map((o, i) => (
               <div key={i} className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
@@ -558,7 +614,7 @@ export default function Campaign() {
           {walking ? <span className="rule">Die Befehle werden aufgedeckt …</span> : c.report.slice(-16).map((l, i) => <span key={i} className="rule">{l}</span>)}
         </div>
         <span className="rule" style={{ fontSize: 12 }}>Alle Begriffe und Regeln stehen im Feldbuch hinter dem goldenen ?.</span>
-        <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>
+        {!online && <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={restart}>Kampagne neu beginnen</button>}
       </aside>
     </div>
   );
@@ -597,6 +653,22 @@ function ConflictCard({ e, index, count, pos, onPrev, onNext, onClose, finalLabe
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <button type="button" className={index === 0 ? 'ghost muted' : 'ghost'} disabled={index === 0} onClick={onPrev}>‹ Zurück</button>
         <button type="button" className="primary" onClick={onNext}>{last ? finalLabel : 'Nächster Konflikt ›'}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Battle fought as a linked online Deckmate game: open it, and take over the result once it is over. */
+function LinkedBattle({ gameId, onOpen, onTake }: { gameId: string; onOpen: () => void; onTake: (st: GameState) => void }) {
+  const [st, setSt] = useState<GameState | null>(null);
+  useEffect(() => watchGame(gameId, (g) => setSt(g?.state ?? null), () => setSt(null)), [gameId]);
+  const over = st?.phase === 'over';
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <span className="rule" style={{ fontSize: 12 }}>{over ? 'Die Partie ist entschieden.' : 'Die Partie läuft – beide Spieler spielen sie online.'}</span>
+      <div className="row">
+        <button type="button" className={over ? '' : 'primary'} onClick={onOpen}>{over ? 'Partie ansehen' : 'Zur Schlacht'}</button>
+        {over && <button type="button" className="primary" onClick={() => onTake(st!)}>Ergebnis übernehmen</button>}
       </div>
     </div>
   );

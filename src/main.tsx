@@ -8,6 +8,9 @@ import OnlineGame from './pages/OnlineGame.tsx';
 import LocalGame from './pages/LocalGame.tsx';
 import BattleTest from './pages/BattleTest.tsx';
 import Campaign from './pages/Campaign.tsx';
+import OnlineCampaign from './pages/OnlineCampaign.tsx';
+import { lazy, Suspense } from 'react';
+const DevTwoPlayer = import.meta.env.DEV ? lazy(() => import('./pages/DevTwoPlayer.tsx')) : null;
 import './styles.css';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -26,6 +29,8 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/lokal" element={<LocalGame />} />
           <Route path="/schlacht" element={<BattleTest />} />
           <Route path="/kampagne" element={<Campaign />} />
+          <Route path="/kampagne/:id" element={<Protected><OnlineCampaign /></Protected>} />
+          {DevTwoPlayer && <Route path="/dev/kampagne-zwei" element={<Suspense fallback={null}><DevTwoPlayer /></Suspense>} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

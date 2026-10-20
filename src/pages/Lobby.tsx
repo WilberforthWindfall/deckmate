@@ -3,15 +3,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../auth.tsx';
 import { db } from '../firebase.ts';
-import { createGame, deleteGame, joinGame, watchLobby, watchMyFinished, type GameDoc } from '../online.ts';
+import { createCampaign, createGame, deleteGame, isCampaign, joinCampaign, joinGame, parseCampaign, watchLobby, watchMyFinished, type AnyDoc, type CampaignDoc, type GameDoc } from '../online.ts';
+import { HOUSES, type House } from '../campaign/map.ts';
+import { DEFAULT_OPTIONS, type CampaignOptions } from '../campaign/engine.ts';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
 import { FeedbackButton } from '../components/Feedback.tsx';
 
 export default function Lobby() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
-  const [games, setGames] = useState<GameDoc[]>([]);
-  const [finished, setFinished] = useState<GameDoc[]>([]);
+  const [games, setGames] = useState<AnyDoc[]>([]);
+  const [finished, setFinished] = useState<AnyDoc[]>([]);
+  const [cName, setCName] = useState('');
+  const [cHouse, setCHouse] = useState<House | 'any'>('any');
+  const [cOpts, setCOpts] = useState<CampaignOptions>(DEFAULT_OPTIONS);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
@@ -39,22 +44,34 @@ export default function Lobby() {
       nav(`/spiel/${id}`);
     } catch (err) { setError(firestoreHint(err)); setBusy(false); }
   }
-  async function join(id: string) {
-    setError('');
-    try { await joinGame(user!, id); nav(`/spiel/${id}`); } catch (err) { setError((err as Error).message || firestoreHint(err)); }
+  async function createC(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const h: House = cHouse === 'any' ? (Math.random() < 0.5 ? 'R' : 'K') : cHouse;
+      nav(`/kampagne/${await createCampaign(user!, cName, h, cOpts)}`);
+    } catch (err) { setError(firestoreHint(err)); setBusy(false); }
   }
-  async function copyLink(id: string) {
-    const url = `${location.origin}/spiel/${id}`;
+  const path = (g: AnyDoc) => (isCampaign(g) ? `/kampagne/${g.id}` : `/spiel/${g.id}`);
+  async function join(g: AnyDoc) {
+    setError('');
+    try { if (isCampaign(g)) await joinCampaign(user!, g.id); else await joinGame(user!, g.id); nav(path(g)); } catch (err) { setError((err as Error).message || firestoreHint(err)); }
+  }
+  async function copyLink(g: AnyDoc) {
+    const id = g.id;
+    const url = `${location.origin}${path(g)}`;
     try { await navigator.clipboard.writeText(url); setCopied(id); setTimeout(() => setCopied(null), 1800); } catch { prompt('Einladungslink', url); }
   }
 
-  const Row = ({ g, action }: { g: GameDoc; action: JSX.Element }) => (
+  const Row = ({ g, action }: { g: AnyDoc; action: JSX.Element }) => (
     <div className="game-row">
       <div style={{ minWidth: 0 }}>
-        <div className="title">{g.name}</div>
+        <div className="title">{isCampaign(g) && <span className="tag" style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, border: '1px solid var(--brass)', color: 'var(--brass)', marginRight: 6 }}>Kampagne</span>}{(g as GameDoc).campaign && <span className="tag" style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, border: '1px solid var(--rope)', marginRight: 6 }}>Kampagnen-Schlacht</span>}{g.name}</div>
         <div className="crew">
-          {(['M', 'O'] as Side[]).map((s) => <span key={s}><i className={`dot ${s}`} />{SIDE_NAME[s]}: {g.names[s] ?? <em>frei</em>}</span>)}
-          <span>{statusText(g, me)}</span>
+          {isCampaign(g)
+            ? (['R', 'K'] as House[]).map((h) => <span key={h}><i className="dot" style={{ background: HOUSES[h].color }} />{HOUSES[h].n}: {g.names[h] ?? <em>frei</em>}</span>)
+            : (['M', 'O'] as Side[]).map((s) => <span key={s}><i className={`dot ${s}`} />{SIDE_NAME[s]}: {g.names[s] ?? <em>frei</em>}</span>)}
+          <span>{isCampaign(g) ? campaignStatus(g, me) : statusText(g, me)}</span>
         </div>
       </div>
       <div className="row" style={{ justifyContent: 'flex-end' }}>{action}</div>
@@ -76,11 +93,11 @@ export default function Lobby() {
               <div className="game-list">
                 {mine.length ? mine.map((g) => (
                   <Row key={g.id} g={g} action={<>
-                    {g.status === 'open' && <button type="button" onClick={() => copyLink(g.id)}>{copied === g.id ? 'Link kopiert' : 'Einladungslink'}</button>}
+                    {g.status === 'open' && <button type="button" onClick={() => copyLink(g)}>{copied === g.id ? 'Link kopiert' : 'Einladungslink'}</button>}
                     {g.createdBy === me && (confirmDel === g.id
                       ? <><button type="button" onClick={() => deleteGame(g.id)}>Wirklich löschen</button><button type="button" className="ghost" onClick={() => setConfirmDel(null)}>Abbrechen</button></>
                       : <button type="button" className="ghost" onClick={() => setConfirmDel(g.id)}>Löschen</button>)}
-                    <button type="button" className="primary" onClick={() => nav(`/spiel/${g.id}`)}>Öffnen</button>
+                    <button type="button" className="primary" onClick={() => nav(path(g))}>Öffnen</button>
                   </>} />
                 )) : <div className="empty">{loaded ? 'Du hast gerade keine offenen Partien. Lege rechts eine an oder tritt einer bei.' : 'Lade Partien …'}</div>}
               </div>
@@ -88,7 +105,7 @@ export default function Lobby() {
             <section className="card">
               <h2>Offene Partien</h2>
               <div className="game-list">
-                {open.length ? open.map((g) => <Row key={g.id} g={g} action={<button type="button" className="primary" onClick={() => join(g.id)}>Mitspielen</button>} />)
+                {open.length ? open.map((g) => <Row key={g.id} g={g} action={<button type="button" className="primary" onClick={() => join(g)}>Mitspielen</button>} />)
                   : <div className="empty">{loaded ? 'Gerade wartet niemand auf eine Gegenseite.' : 'Lade Partien …'}</div>}
               </div>
             </section>
@@ -96,7 +113,7 @@ export default function Lobby() {
               <section className="card">
                 <h2>Beendet</h2>
                 <div className="game-list">
-                  {finished.map((g) => <Row key={g.id} g={g} action={<button type="button" onClick={() => nav(`/spiel/${g.id}`)}>Ansehen</button>} />)}
+                  {finished.map((g) => <Row key={g.id} g={g} action={<button type="button" onClick={() => nav(path(g))}>Ansehen</button>} />)}
                 </div>
               </section>
             )}
@@ -123,11 +140,26 @@ export default function Lobby() {
               <p className="rule" style={{ margin: 0 }}>Prototyp: Zwei Heere aus dem Kampagnenmodus treffen sich auf dem Brett. Heere und Gelände wählen, aufstellen, kämpfen.</p>
               <Link to="/schlacht"><button type="button">Schlacht ausprobieren</button></Link>
             </div>
-            <div className="card stack">
-              <h2>Kampagne um Eridanos</h2>
-              <p className="rule" style={{ margin: 0 }}>Prototyp an einem Gerät: Ravensmoor gegen Kerrow auf der Hexkarte. Geheime Befehle reihum, knappe Kämpfe als Deckmate-Schlacht.</p>
-              <Link to="/kampagne"><button type="button" className="primary">Kampagne spielen</button></Link>
-            </div>
+            <form className="card stack" onSubmit={createC}>
+              <h2>Neue Kampagne um Eridanos</h2>
+              <p className="rule" style={{ margin: 0 }}>Zwei Spieler, jeder an seinem Gerät: Ravensmoor gegen Kerrow auf der Hexkarte. Beide geben ihre Befehle gleichzeitig, knappe Kämpfe werden als Deckmate-Partie zwischen euch ausgetragen.</p>
+              <label className="stack" style={{ gap: 4 }}><span className="lbl">Name</span>
+                <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Der Winter von Aldfurt" maxLength={60} /></label>
+              <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Dein Haus</span>
+                  <select value={cHouse} onChange={(e) => setCHouse(e.target.value as House | 'any')}>
+                    <option value="any">Zufällig</option><option value="R">Ravensmoor</option><option value="K">Kerrow</option>
+                  </select></label>
+                <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Runden</span>
+                  <select value={cOpts.maxRounds} onChange={(e) => setCOpts({ ...cOpts, maxRounds: Number(e.target.value) })}>
+                    <option value={6}>6 · kurz</option><option value={10}>10 · normal</option><option value={15}>15 · lang</option>
+                  </select></label>
+              </div>
+              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.goals} onChange={(e) => setCOpts({ ...cOpts, goals: e.target.checked })} /><span>Geheime Ziele</span></label>
+              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.experience} onChange={(e) => setCOpts({ ...cOpts, experience: e.target.checked })} /><span>Erfahrung der Heere</span></label>
+              <button type="submit" className="primary" disabled={busy}>Kampagne anlegen</button>
+              <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand aus der Lobby beitritt. <Link to="/kampagne">An einem Gerät spielen</Link></p>
+            </form>
             <div className="card stack">
               <h2>Feedback an die Werft</h2>
               <p className="rule" style={{ margin: 0 }}>Etwas gefunden, das nervt, oder eine Idee für Deckmate? Wünsche und Kritik landen direkt bei der Entwicklung.</p>
@@ -138,6 +170,18 @@ export default function Lobby() {
       </div>
     </div>
   );
+}
+
+function campaignStatus(g: CampaignDoc, me: string) {
+  if (g.status === 'open') return 'wartet auf das zweite Haus';
+  let c;
+  try { c = parseCampaign(g); } catch { return ''; }
+  if (g.status === 'over' || c.phase === 'over') return c.winner ? `${HOUSES[c.winner].n} gewann` : 'unentschieden';
+  const mine = (['R', 'K'] as House[]).find((h) => g.players[h] === me);
+  if (c.phase === 'battles') return `Runde ${c.round} · Schlachten`;
+  if (mine && !c.sealed[mine]) return `Runde ${c.round} · deine Befehle`;
+  if (mine) return `Runde ${c.round} · warte auf ${HOUSES[mine === 'R' ? 'K' : 'R'].n}`;
+  return `Runde ${c.round}`;
 }
 
 function statusText(g: GameDoc, me: string) {

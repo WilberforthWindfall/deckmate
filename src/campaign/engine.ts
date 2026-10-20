@@ -129,6 +129,8 @@ export interface PendingBattle {
   defCards: number;
   attStrength: number;
   defStrength: number;
+  /** Online: id of the linked Deckmate game in which this battle is fought. */
+  game?: string;
 }
 
 /** One side of a conflict with the parts of its strength. */
@@ -283,7 +285,7 @@ function gainXp(c: Campaign, a: CArmy, n: number, log: string[]) {
   if (!xpOn(c) || a.size <= 0) return;
   const before = rankOf(a);
   a.xp = (a.xp ?? 0) + n;
-  if (rankOf(a) > before) log.push(`Das Heer von ${hn(a.house)} bei ${hexName(a.hex)} ist jetzt ${RANKS[rankOf(a)].n} (+${Math.round(RANKS[rankOf(a)].bonus * 100)} % Stärke).`);
+  if (rankOf(a) > before) log.push(`Ein Heer von ${hn(a.house)} (${a.size} Figuren) ist jetzt ${RANKS[rankOf(a)].n}: +${Math.round(RANKS[rankOf(a)].bonus * 100)} % Stärke.`);
 }
 function sideOf(c: Campaign, a: CArmy, from: HexKey, hex: HexKey, supports: CArmy[], defending: boolean): ConflictSide {
   return {
