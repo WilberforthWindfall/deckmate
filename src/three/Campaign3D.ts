@@ -5,6 +5,8 @@ import {
 } from '../campaign/map.ts';
 import { buildingActive, buildingOwnerOf, type Campaign, type Order, type SpecKey, type Tone } from '../campaign/engine.ts';
 import { AGENT_ABBR, BUILDING_ICON } from '../campaign/CampaignMap.tsx';
+import { BUILDINGS, type BuildingKey } from '../campaign/engine.ts';
+import { SPRITE_SIZE, hasSprite, spriteName, spriteUrl } from '../campaign/sprites.ts';
 
 // 3D view of the campaign map. Same inputs as the SVG map; the rules engine is untouched.
 
@@ -18,6 +20,8 @@ export interface MapView {
   labels?: Record<HexKey, { text: string; tone: Tone }>;
   focus?: HexKey[];
   posOverride?: Record<string, [number, number]>;
+  moving?: Set<string>;
+  construction?: { hex: HexKey; b: BuildingKey; house: House }[];
 }
 export interface MapHandlers {
   onHex: (k: HexKey) => void;
@@ -113,7 +117,20 @@ export class Campaign3D {
   private cols: { mesh: THREE.Mesh; prov: string; hex: HexKey }[] = [];
   private sideMat: Record<House | 'N', THREE.MeshStandardMaterial>;
   private dyn = new THREE.Group();
-  private units = new Map<string, { obj: THREE.Group; to: THREE.Vector3; key: string }>();
+  private units = new Map<string, { obj: THREE.Group; to: THREE.Vector3; key: string; moving: boolean; body?: THREE.Object3D }>();
+  private textures = new Map<string, THREE.Texture>();
+  private loader = new THREE.TextureLoader();
+  /** A painted sprite standing on the ground (bottom centre at y = 0). */
+  private painted(name: string, height: number) {
+    let t = this.textures.get(name);
+    if (!t) { t = this.loader.load(spriteUrl(name)); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; this.textures.set(name, t); }
+    const [w, h] = SPRITE_SIZE[name] ?? [1, 1];
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, alphaTest: 0.05 }));
+    sp.center.set(0.5, 0);
+    sp.scale.set(height * (w / h), height, 1);
+    sp.userData.keepMap = true;
+    return sp;
+  }
   private armyGroup = new THREE.Group();
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -325,13 +342,13 @@ export class Campaign3D {
   }
 
   private updateDyn(v: MapView) {
-    const key = JSON.stringify([v.c.hexOwner, v.c.owner, v.c.buildings, v.c.buildingOwner, v.selectedHex, v.reach, v.plan, v.orders, v.labels, v.focus,
+    const key = JSON.stringify([v.c.hexOwner, v.c.owner, v.c.buildings, v.c.buildingOwner, v.construction, Object.keys(SPRITE_SIZE).length, v.selectedHex, v.reach, v.plan, v.orders, v.labels, v.focus,
       v.c.battles.map((b) => [b.hex, b.from]), v.c.armies.map((a) => [a.id, a.hex]), v.c.agents.map((a) => [a.id, a.hex])]);
     if (key === this.dynKey) return;
     this.dynKey = key;
     for (const o of [...this.dyn.children]) {
       this.dyn.remove(o);
-      o.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose?.(); const mat = m.material as THREE.SpriteMaterial | undefined; mat?.map?.dispose(); mat?.dispose?.(); });
+      o.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose?.(); const mat = m.material as THREE.SpriteMaterial | undefined; if (!x.userData.keepMap) mat?.map?.dispose(); mat?.dispose?.(); });
     }
     const add = (o: THREE.Object3D) => this.dyn.add(o);
     const capMat = (color: number, opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
@@ -378,17 +395,49 @@ export class Campaign3D {
       }, 0.5);
       sh.position.set(x - 0.6, provHeight(p.id) + 1.0, z - 0.45); add(sh);
     }
-    // buildings as small round signs on their field
+    // buildings: painted sprite if available, otherwise a small round sign
     for (const [k, b] of Object.entries(v.c.buildings)) {
       const active = buildingActive(v.c, k), o = buildingOwnerOf(v.c, k);
       const [x, z] = toW(...hexCenter(k));
+      const name = spriteName.building(b);
+      const px = x + (CITY_HEX[k] ? 0.55 : 0), pz = z - (CITY_HEX[k] ? 0.4 : 0.1);
+      if (hasSprite(name)) {
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.04, 20), new THREE.MeshStandardMaterial({ color: o ? new THREE.Color(HOUSES[o].color) : 0x6e6a60, roughness: 0.7 }));
+        plate.position.set(px, hexHeight(k) + 0.03, pz); add(plate);
+        const sp = this.painted(name, CITY_HEX[k] ? 0.85 : 1.0);
+        sp.position.set(px, hexHeight(k) + 0.04, pz);
+        if (!active) (sp.material as THREE.SpriteMaterial).color.setRGB(0.55, 0.55, 0.55);
+        add(sp);
+        continue;
+      }
       const sp = canvasSprite(30, 30, (g) => {
         g.globalAlpha = active ? 1 : 0.65;
         g.fillStyle = '#F3EAD4'; g.strokeStyle = o ? HOUSES[o].color : '#6E6A60'; g.lineWidth = 3; g.beginPath(); g.arc(15, 15, 12, 0, Math.PI * 2); g.fill(); g.stroke();
         g.fillStyle = '#2A2118'; g.font = '700 14px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(BUILDING_ICON[b], 15, 16);
         if (!active) { g.strokeStyle = '#A8322D'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(6, 24); g.lineTo(24, 6); g.stroke(); }
       }, 0.45);
-      sp.position.set(x + (CITY_HEX[k] ? 0.55 : 0), hexHeight(k) + 0.45, z - (CITY_HEX[k] ? 0.4 : 0.35)); add(sp);
+      sp.position.set(px, hexHeight(k) + 0.45, pz - 0.25); add(sp);
+    }
+    // construction sites: scaffolding with a dashed ring in the builder's colour
+    for (const site of v.construction ?? []) {
+      const [x, z] = toW(...hexCenter(site.hex));
+      const px = x + (CITY_HEX[site.hex] ? 0.55 : 0), pz = z - (CITY_HEX[site.hex] ? 0.4 : 0.1), y0 = hexHeight(site.hex);
+      const g = new THREE.Group(); g.userData.pulse = true; g.position.set(px, y0, pz);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.03, 6, 28), new THREE.MeshBasicMaterial({ color: new THREE.Color(HOUSES[site.house].color), transparent: true }));
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+      if (hasSprite(spriteName.construction())) { const sp = this.painted(spriteName.construction(), 0.9); g.add(sp); }
+      else {
+        const wood = new THREE.MeshStandardMaterial({ color: 0x8c6a3a, roughness: 0.9 });
+        for (const [dx, dz] of [[-0.25, -0.2], [0.25, -0.2], [-0.25, 0.2], [0.25, 0.2]]) { const pole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.05), wood); pole.position.set(dx, 0.35, dz); pole.castShadow = true; g.add(pole); }
+        for (const y of [0.3, 0.6]) { const plank = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.5), wood); plank.position.y = y; plank.castShadow = true; g.add(plank); }
+        const stone = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.22), new THREE.MeshStandardMaterial({ color: 0x9a948a })); stone.position.set(0.32, 0.08, 0.28); g.add(stone);
+      }
+      const tag = canvasSprite(30, 30, (cx) => {
+        cx.fillStyle = '#F3EAD4'; cx.strokeStyle = HOUSES[site.house].color; cx.lineWidth = 3; cx.beginPath(); cx.arc(15, 15, 12, 0, Math.PI * 2); cx.fill(); cx.stroke();
+        cx.fillStyle = '#2A2118'; cx.font = '700 14px Georgia, serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(BUILDING_ICON[site.b], 15, 16);
+      }, 0.36);
+      tag.position.y = 1.05; tag.userData.title = BUILDINGS[site.b].n; g.add(tag);
+      add(g);
     }
     // ways as raised ribbons along the fields
     const way = (from: HexKey, path: HexKey[], color: THREE.Color | number, radius: number, opacity = 1) => {
@@ -436,19 +485,36 @@ export class Campaign3D {
     const marks: Record<string, string> = {};
     for (const o of v.orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
     const seen = new Set<string>();
-    const place = (id: string, key: string, to: THREE.Vector3, build: (g: THREE.Group) => void) => {
+    const place = (id: string, key: string, to: THREE.Vector3, build: (g: THREE.Group) => THREE.Object3D | void) => {
       seen.add(id);
       let e = this.units.get(id);
-      if (!e) { const obj = new THREE.Group(); obj.position.copy(to); this.armyGroup.add(obj); e = { obj, to, key: '' }; this.units.set(id, e); }
+      if (!e) { const obj = new THREE.Group(); obj.position.copy(to); this.armyGroup.add(obj); e = { obj, to, key: '', moving: false }; this.units.set(id, e); }
       e.to = to;
+      e.moving = !!v.moving?.has(id);
       if (e.key !== key) {
         e.key = key;
-        for (const ch of [...e.obj.children]) { e.obj.remove(ch); const m = ch as THREE.Sprite; m.material?.map?.dispose(); m.material?.dispose(); }
-        build(e.obj);
+        for (const ch of [...e.obj.children]) { e.obj.remove(ch); ch.traverse((x) => { const m = x as THREE.Sprite; if (!x.userData.keepMap) m.material?.map?.dispose(); m.material?.dispose?.(); }); }
+        e.body = build(e.obj) ?? undefined;
       }
     };
     for (const a of v.c.armies) {
       const spec = a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR;
+      const sprite = spriteName.army(a.house, !!v.moving?.has(a.id));
+      if (hasSprite(sprite)) {
+        place(a.id, ['P', sprite, a.size, spec, marks[a.id] ?? '', v.selectedUnit === a.id].join('|'), this.unitPos(a.id, a.hex, v, 0, 0, 0.02), (g) => {
+          const body = this.painted(sprite, 1.15); body.userData.army = a.id; body.renderOrder = 4; g.add(body);
+          if (v.selectedUnit === a.id) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 6, 30), new THREE.MeshBasicMaterial({ color: 0xe2c27f })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.03; g.add(ring); }
+          const badge = canvasSprite(56, 26, (cx) => {
+            cx.fillStyle = HOUSES[a.house].color; cx.strokeStyle = '#F1E8D2'; cx.lineWidth = 2; rr(cx, 4, 4, 34, 18, 9); cx.fill(); cx.stroke();
+            cx.fillStyle = '#FFF8F2'; cx.font = '800 13px Figtree, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(String(a.size), 21, 14);
+            if (spec) { cx.fillStyle = '#E2C27F'; cx.beginPath(); cx.arc(46, 13, 8, 0, Math.PI * 2); cx.fill(); cx.fillStyle = '#1E1A15'; cx.font = '700 10px Figtree, sans-serif'; cx.fillText(String(spec), 46, 14); }
+          }, 0.32);
+          badge.position.y = 1.3; badge.userData.army = a.id; badge.renderOrder = 5; g.add(badge);
+          g.userData.army = a.id;
+          return body;
+        });
+        continue;
+      }
       place(a.id, ['A', a.house, a.size, spec, marks[a.id] ?? '', v.selectedUnit === a.id].join('|'), this.unitPos(a.id, a.hex, v), (g) => {
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75, 6), new THREE.MeshStandardMaterial({ color: 0x3b2a1a }));
         pole.position.y = -0.38; pole.castShadow = true; g.add(pole);
@@ -457,18 +523,35 @@ export class Campaign3D {
         const f = flagSprite(a.house, a.size, spec, marks[a.id], v.selectedUnit === a.id);
         f.userData.army = a.id; f.renderOrder = 4; g.add(f);
         g.userData.army = a.id;
+        return f;
       });
     }
     for (const ag of v.c.agents) {
-      place(ag.id, ['G', ag.house, ag.spec, v.selectedUnit === ag.id].join('|'), this.unitPos(ag.id, ag.hex, v, 0.45, 0.4, 0.35), (g) => {
+      const painted = hasSprite(spriteName.agent(ag.spec));
+      place(ag.id, ['G', ag.house, ag.spec, v.selectedUnit === ag.id, painted].join('|'), this.unitPos(ag.id, ag.hex, v, 0.45, 0.4, painted ? 0.02 : 0.35), (g) => {
+        if (painted) {
+          const base = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.04, 16), new THREE.MeshStandardMaterial({ color: new THREE.Color(HOUSES[ag.house].color) }));
+          base.position.y = 0.02; g.add(base);
+          const sp = this.painted(spriteName.agent(ag.spec), 0.62); sp.userData.agent = ag.id; sp.renderOrder = 4; g.add(sp);
+          g.userData.agent = ag.id;
+          return sp;
+        }
         const sp = agentSprite(ag.house, ag.spec, v.selectedUnit === ag.id);
         sp.userData.agent = ag.id; sp.renderOrder = 4; g.add(sp);
         g.userData.agent = ag.id;
+        return sp;
       });
     }
     for (const t of v.c.traders) {
-      place(t.id, ['T', t.house, t.gold].join('|'), this.unitPos(t.id, t.hex, v, -0.45, 0.45, 0.3), (g) => {
+      const wagon = hasSprite(spriteName.wagon());
+      place(t.id, ['T', t.house, t.gold, wagon].join('|'), this.unitPos(t.id, t.hex, v, -0.45, 0.45, wagon ? 0.02 : 0.3), (g) => {
+        if (wagon) {
+          const sp = this.painted(spriteName.wagon(), 0.55); sp.renderOrder = 3; g.add(sp);
+          const tag = traderSprite(t.house, t.gold); tag.position.y = 0.7; tag.scale.multiplyScalar(0.7); g.add(tag);
+          return sp;
+        }
         const sp = traderSprite(t.house, t.gold); sp.renderOrder = 3; g.add(sp);
+        return sp;
       });
     }
     for (const [id, e] of this.units) if (!seen.has(id)) { this.armyGroup.remove(e.obj); this.units.delete(id); }
@@ -542,7 +625,16 @@ export class Campaign3D {
     this.camera.lookAt(o.look);
     const moved = Math.abs(o.theta + o.phi + o.rad + o.look.x + o.look.z + o.look.y - before) > 1e-4;
     // armies glide to their places
-    for (const e of this.units.values()) e.obj.position.lerp(e.to, 0.1);
+    for (const e of this.units.values()) {
+      e.obj.position.lerp(e.to, 0.1);
+      // marching: bob and sway while walking; at rest a slow breathing
+      if (e.body) {
+        const ph = now / 1000;
+        const walking = e.moving || e.obj.position.distanceTo(e.to) > 0.04;
+        e.body.position.y = walking ? Math.abs(Math.sin(ph * 11)) * 0.07 : Math.sin(ph * 1.8) * 0.008;
+        (e.body as THREE.Sprite).material.rotation = walking ? Math.sin(ph * 11) * 0.05 : 0;
+      }
+    }
     // the sea drifts, the focus outline pulses
     const t = (now - this.t0) / 1000;
     const map = (this.sea.material as THREE.MeshStandardMaterial).map!;

@@ -4,6 +4,7 @@ import {
   type HexKey, type House,
 } from './map.ts';
 import { BUILDINGS, buildingActive, buildingOwnerOf, type BuildingKey, type Campaign, type Order, type SpecKey, type Tone } from './engine.ts';
+import { hasSprite, spriteBox, spriteName, spriteUrl } from './sprites.ts';
 
 export interface MapProps {
   c: Campaign;
@@ -28,6 +29,10 @@ export interface MapProps {
   posOverride?: Record<string, [number, number]>;
   /** Faster token movement during the step-by-step reveal. */
   stepMs?: number;
+  /** Units walking right now (they march and raise dust). */
+  moving?: Set<string>;
+  /** Buildings being built this round (shown as construction sites). */
+  construction?: { hex: HexKey; b: BuildingKey; house: House }[];
   svgRef?: RefObject<SVGSVGElement>;
 }
 
@@ -45,7 +50,7 @@ const seg = (a: [number, number], b: [number, number], x: number, y: number, k: 
 const line = (from: HexKey, path: HexKey[]) => [from, ...path].map((k, i) => { const [x, y] = hexCenter(k); return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`; }).join('');
 
 export default function CampaignMap(p: MapProps) {
-  const { c, selectedHex, selectedUnit, reach, plan, orders, onHex, onArmy, onAgent, labels, focus, posOverride, stepMs = 900, svgRef } = p;
+  const { c, selectedHex, selectedUnit, reach, plan, orders, onHex, onArmy, onAgent, labels, focus, posOverride, stepMs = 900, svgRef, moving, construction } = p;
   const marks: Record<string, Mark> = {};
   for (const o of orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
   const geo = useMemo(() => {
@@ -97,6 +102,8 @@ export default function CampaignMap(p: MapProps) {
         {(['R', 'K'] as House[]).map((h) => (
           <marker key={h} id={`arrow-${h}`} viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0 0L10 5L0 10z" fill={HOUSES[h].color} /></marker>
         ))}
+ <filter id="dm-rest"><feColorMatrix type="saturate" values="0.15" /><feComponentTransfer><feFuncA type="linear" slope="0.75" /></feComponentTransfer></filter>
+        <radialGradient id="dm-shadow"><stop offset="0" stopColor="#000" stopOpacity="0.45" /><stop offset="1" stopColor="#000" stopOpacity="0" /></radialGradient>
         <marker id="arrow-plan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#F3D27A" /></marker>
       </defs>
       <rect width={MAP_W} height={MAP_H} fill="url(#t-meer)" />
@@ -134,17 +141,50 @@ export default function CampaignMap(p: MapProps) {
         </g>
       )}
 
-      {/* buildings */}
+      {/* buildings and construction sites */}
       {Object.entries(c.buildings).map(([k, b]) => {
         const [x, y] = hexCenter(k);
         const active = buildingActive(c, k), o = buildingOwnerOf(c, k);
         const city = !!CITY_HEX[k];
+        const name = spriteName.building(b);
+        if (hasSprite(name)) {
+          const [w, h] = spriteBox(name, city ? 34 : 40);
+          const bx = x + (city ? 20 : 0), by = y + (city ? 4 : 8);
+          return (
+            <g key={`b${k}`} pointerEvents="none">
+              <title>{BUILDINGS[b].n}{active ? '' : ' (ruht)'}</title>
+              <ellipse cx={bx} cy={by} rx={w * 0.42} ry={7} fill={o ? HOUSES[o].color : '#6E6A60'} opacity={0.55} />
+              <image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} filter={active ? undefined : 'url(#dm-rest)'} />
+              {!active && <g transform={`translate(${bx + w / 2 - 6},${by - h + 8})`}><circle r={7} fill="#7E2621" stroke="#F1E8D2" strokeWidth={1.2} /><path d="M-3,-3 L3,3 M3,-3 L-3,3" stroke="#F1E8D2" strokeWidth={1.6} /></g>}
+            </g>
+          );
+        }
         return (
           <g key={`b${k}`} transform={`translate(${x + (city ? 18 : 0)},${y + (city ? -14 : -12)})`} pointerEvents="none" opacity={active ? 1 : 0.6}>
             <title>{BUILDINGS[b].n}{active ? '' : ' (ruht)'}</title>
             <circle r={10} fill="#F3EAD4" stroke={o ? HOUSES[o].color : '#6E6A60'} strokeWidth={2.4} />
             <text y={4.2} textAnchor="middle" fontSize={12} fontWeight={700} fill="#2A2118">{BUILDING_ICON[b]}</text>
             {!active && <path d="M-8,8 L8,-8" stroke="#A8322D" strokeWidth={2.4} strokeLinecap="round" />}
+          </g>
+        );
+      })}
+      {(construction ?? []).map((s, i) => {
+        const [x, y] = hexCenter(s.hex);
+        const city = !!CITY_HEX[s.hex];
+        const bx = x + (city ? 20 : 0), by = y + (city ? 4 : 14);
+        const name = spriteName.construction();
+        return (
+          <g key={`c${i}`} pointerEvents="none" className="dm-build">
+            <title>Im Bau: {BUILDINGS[s.b].n}</title>
+            <ellipse cx={bx} cy={by} rx={17} ry={7} fill="none" stroke={HOUSES[s.house].color} strokeWidth={2} strokeDasharray="4 3" />
+            {hasSprite(name)
+              ? (() => { const [w, h] = spriteBox(name, 36); return <image href={spriteUrl(name)} x={bx - w / 2} y={by - h + 4} width={w} height={h} opacity={0.95} />; })()
+              : <g transform={`translate(${bx},${by - 9})`}>
+                  <rect x={-16} y={-12} width={32} height={22} rx={5} fill="#F3EAD4" fillOpacity={0.92} stroke={HOUSES[s.house].color} strokeWidth={2} strokeDasharray="4 2.5" />
+                  <path d="M-10,8 L-6,-9 M6,-9 L10,8 M-9,2 H9 M-7,-4 H7" stroke="#7A5A2E" strokeWidth={2.2} strokeLinecap="round" />
+                  <circle r={7.5} cx={15} cy={-12} fill="#F3EAD4" stroke={HOUSES[s.house].color} strokeWidth={2} />
+                  <text x={15} y={-8.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#2A2118">{BUILDING_ICON[s.b]}</text>
+                </g>}
           </g>
         );
       })}
@@ -191,12 +231,20 @@ export default function CampaignMap(p: MapProps) {
       {/* traders, agents, armies */}
       {c.traders.map((t) => {
         const [x, y] = unitPos(t.id, t.hex);
+        const walk = moving?.has(t.id);
+        const name = spriteName.wagon();
         return (
-          <g key={t.id} data-trader={t.id} pointerEvents="none" style={{ transform: `translate(${x - 16}px, ${y + 14}px)`, transition: `transform ${stepMs}ms ease-in-out` }}>
+          <g key={t.id} data-trader={t.id} pointerEvents="none" style={{ transform: `translate(${x - 17}px, ${y + 16}px)`, transition: `transform ${stepMs}ms ease-in-out` }}>
             <title>Händler von {HOUSES[t.house].n}, bringt {t.gold} Gold</title>
-            <rect x={-9} y={-6} width={18} height={9} rx={2} fill="#C9A15A" stroke={HOUSES[t.house].color} strokeWidth={2} />
-            <circle cx={-5} cy={5} r={3} fill="#3B2F22" /><circle cx={5} cy={5} r={3} fill="#3B2F22" />
-            <text x={14} y={2} fontSize={9} fontWeight={700} fill="#F3EAD4" stroke="#1E1A15" strokeWidth={2.5} paintOrder="stroke">{t.gold}</text>
+            <ellipse cx={0} cy={4} rx={13} ry={4} fill="url(#dm-shadow)" />
+            {walk && <Dust />}
+            <g className={walk ? 'dm-march' : undefined}>
+              {hasSprite(name)
+                ? (() => { const [w, h] = spriteBox(name, 24); return <image href={spriteUrl(name)} x={-w / 2} y={4 - h} width={w} height={h} />; })()
+                : <><rect x={-9} y={-6} width={18} height={9} rx={2} fill="#C9A15A" stroke={HOUSES[t.house].color} strokeWidth={2} /><circle cx={-5} cy={5} r={3} fill="#3B2F22" /><circle cx={5} cy={5} r={3} fill="#3B2F22" /></>}
+              <path d="M-11,-14 v-9 l7,3 l-7,3" fill={HOUSES[t.house].color} stroke="#F1E8D2" strokeWidth={0.8} className="dm-flag" />
+            </g>
+            <text x={13} y={2} fontSize={9} fontWeight={700} fill="#F3EAD4" stroke="#1E1A15" strokeWidth={2.5} paintOrder="stroke">{t.gold}</text>
           </g>
         );
       })}
@@ -206,15 +254,24 @@ export default function CampaignMap(p: MapProps) {
           <g key={g.id} data-agent-id={g.id} onClick={(e) => { e.stopPropagation(); onAgent?.(g.id); }}
             style={{ cursor: onAgent ? 'pointer' : undefined, transform: `translate(${x + 17}px, ${y + 13}px)`, transition: `transform ${stepMs}ms ease-in-out` }}>
             {selectedUnit === g.id && <circle r={13} fill="none" stroke="#E2C27F" strokeWidth={2.5} />}
-            <circle r={10} fill="#F1E8D2" stroke={HOUSES[g.house].color} strokeWidth={3} />
-            <text y={3.6} textAnchor="middle" fontSize={9.5} fontWeight={800} fill="#1E1A15">{AGENT_ABBR[g.spec]}</text>
+            {hasSprite(spriteName.agent(g.spec)) ? (() => {
+              const name = spriteName.agent(g.spec), [w, h] = spriteBox(name, 30);
+              return <>
+                <ellipse cy={7} rx={9} ry={3.5} fill={HOUSES[g.house].color} stroke="#F1E8D2" strokeWidth={1} />
+                {moving?.has(g.id) && <Dust />}
+                <g className={moving?.has(g.id) ? 'dm-march' : 'dm-idle'}><image href={spriteUrl(name)} x={-w / 2} y={8 - h} width={w} height={h} /></g>
+              </>;
+            })() : <>
+              <circle r={10} fill="#F1E8D2" stroke={HOUSES[g.house].color} strokeWidth={3} />
+              <text y={3.6} textAnchor="middle" fontSize={9.5} fontWeight={800} fill="#1E1A15">{AGENT_ABBR[g.spec]}</text>
+            </>}
           </g>
         );
       })}
       {c.armies.map((a) => {
         const [x, y] = unitPos(a.id, a.hex);
         return <Token key={a.id} x={x} y={y} house={a.house} size={a.size} spec={a.spec.CAP + a.spec.KAP + a.spec.KAN + a.spec.MAR}
-          selected={selectedUnit === a.id} mark={marks[a.id]} id={a.id} ms={stepMs}
+          selected={selectedUnit === a.id} mark={marks[a.id]} id={a.id} ms={stepMs} moving={!!moving?.has(a.id)}
           onClick={(e) => { e.stopPropagation(); if (onArmy) onArmy(a.id); else onHex(a.hex); }} />;
       })}
       {c.battles.map((b) => {
@@ -244,24 +301,58 @@ export default function CampaignMap(p: MapProps) {
 
 const center2 = (k: HexKey) => { const h = HEX[k]; return [h.c, h.r] as [number, number]; };
 
-function Token({ x, y, house, size, spec, selected, mark, id, ms, onClick }: {
-  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; mark?: Mark; id?: string; ms: number; onClick?: (e: RMouseEvent) => void;
+function Dust() {
+  return (
+    <g className="dm-dust" pointerEvents="none">
+      <circle cx={-10} cy={6} r={3} /><circle cx={-16} cy={4} r={2.2} /><circle cx={-6} cy={8} r={2} />
+    </g>
+  );
+}
+
+function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, onClick }: {
+  x: number; y: number; house: House; size: number; spec: number; selected?: boolean; mark?: Mark; id?: string; ms: number; moving?: boolean; onClick?: (e: RMouseEvent) => void;
 }) {
+  const name = spriteName.army(house, !!moving);
+  const painted = hasSprite(name);
+  const markIcon = mark && (
+    <g transform={painted ? 'translate(-20,10)' : 'translate(-22,13)'} aria-label={mark === 'move' ? 'zieht' : mark === 'support' ? 'unterstützt' : 'fouragiert'}>
+      <circle r={8.5} fill="#F1E8D2" stroke="#1E1A15" strokeWidth={1} />
+      {mark === 'move' && <path d="M-4.5,0 H3 M0,-3.5 L4,0 L0,3.5" fill="none" stroke="#1E1A15" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />}
+      {mark === 'support' && <path d="M-4,-4.5 H4 V0 Q4,3.5 0,5 Q-4,3.5 -4,0 Z" fill="#1E1A15" />}
+      {mark === 'forage' && <path d="M0,5 V-4.5 M0,-1.5 L-3.5,-4.5 M0,-1.5 L3.5,-4.5 M0,1.5 L-3.5,-1.5 M0,1.5 L3.5,-1.5" fill="none" stroke="#1E1A15" strokeWidth={1.5} strokeLinecap="round" />}
+    </g>
+  );
+  if (painted) {
+    const [w, h] = spriteBox(name, 56);
+    return (
+      <g data-army={house} data-army-id={id} onClick={onClick}
+        style={{ cursor: onClick ? 'pointer' : undefined, transform: `translate(${x}px, ${y}px)`, transition: `transform ${ms}ms ease-in-out` }}>
+        <ellipse cy={12} rx={22} ry={7} fill="url(#dm-shadow)" />
+        {selected && <ellipse cy={12} rx={25} ry={9} fill="none" stroke="#E2C27F" strokeWidth={3} />}
+        {moving && <Dust />}
+        <g className={moving ? 'dm-march' : 'dm-idle'}>
+          <image href={spriteUrl(name)} x={-w / 2} y={14 - h} width={w} height={h} />
+        </g>
+        <g transform="translate(0,20)">
+          <rect x={-15} y={-8} width={30} height={16} rx={8} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={1.5} />
+          <text y={4.5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={800} fontSize={12} fill="#FFF8F2">{size}</text>
+        </g>
+        {spec > 0 && <g transform="translate(17,17)"><circle r={7} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={3.5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
+        {markIcon}
+      </g>
+    );
+  }
   return (
     <g data-army={house} data-army-id={id} onClick={onClick}
       style={{ cursor: onClick ? 'pointer' : undefined, transform: `translate(${x}px, ${y}px) scale(0.8)`, transition: `transform ${ms}ms ease-in-out` }}>
-      {selected && <rect x={-29} y={-20} width={58} height={40} rx={10} fill="none" stroke="#E2C27F" strokeWidth={3.5} />}
-      <rect x={-24} y={-15} width={48} height={30} rx={7} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={2} />
-      <path d="M-15,-8 v16 M-15,-8 l9,4 l-9,4" fill="none" stroke="#FFF6F2" strokeWidth={1.5} strokeLinejoin="round" />
-      <text x={6} y={5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={15} fill="#FFF8F2">{size}</text>
-      {mark && (
-        <g transform="translate(-22,13)" aria-label={mark === 'move' ? 'zieht' : mark === 'support' ? 'unterstützt' : 'fouragiert'}>
-          <circle r={8.5} fill="#F1E8D2" stroke="#1E1A15" strokeWidth={1} />
-          {mark === 'move' && <path d="M-4.5,0 H3 M0,-3.5 L4,0 L0,3.5" fill="none" stroke="#1E1A15" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />}
-          {mark === 'support' && <path d="M-4,-4.5 H4 V0 Q4,3.5 0,5 Q-4,3.5 -4,0 Z" fill="#1E1A15" />}
-          {mark === 'forage' && <path d="M0,5 V-4.5 M0,-1.5 L-3.5,-4.5 M0,-1.5 L3.5,-4.5 M0,1.5 L-3.5,-1.5 M0,1.5 L3.5,-1.5" fill="none" stroke="#1E1A15" strokeWidth={1.5} strokeLinecap="round" />}
-        </g>
-      )}
+      {moving && <Dust />}
+      <g className={moving ? 'dm-march' : undefined}>
+        {selected && <rect x={-29} y={-20} width={58} height={40} rx={10} fill="none" stroke="#E2C27F" strokeWidth={3.5} />}
+        <rect x={-24} y={-15} width={48} height={30} rx={7} fill={HOUSES[house].color} stroke="#F1E8D2" strokeWidth={2} />
+        <path d="M-15,-8 v16 M-15,-8 l9,4 l-9,4" fill="none" stroke="#FFF6F2" strokeWidth={1.5} strokeLinejoin="round" className="dm-flag" />
+        <text x={6} y={5} textAnchor="middle" fontFamily="Figtree, sans-serif" fontWeight={700} fontSize={15} fill="#FFF8F2">{size}</text>
+      </g>
+      {markIcon}
       {spec > 0 && <g transform="translate(20,-14)"><circle r={8} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
     </g>
   );

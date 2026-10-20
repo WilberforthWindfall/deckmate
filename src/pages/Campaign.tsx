@@ -253,7 +253,9 @@ export default function Campaign() {
   if (walking) {
     const hexOwner = { ...rv.hexOwner };
     if (show === 'walk') for (const a of rv.armies) for (const k of (rv.walk[a.id] ?? []).slice(1, at + 1)) hexOwner[k] = a.house;
-    mapC = { ...c, round: rv.round, armies: rv.armies, agents: rv.agents, traders: rv.traders, hexOwner, owner: rv.owner, gold: rv.gold, battles: [] };
+    const buildings = { ...c.buildings };
+    for (const x of ['R', 'K'] as House[]) for (const o of rv.orders[x]) if (o.kind === 'build') delete buildings[o.hex];
+    mapC = { ...c, round: rv.round, armies: rv.armies, agents: rv.agents, traders: rv.traders, hexOwner, owner: rv.owner, gold: rv.gold, battles: [], buildings };
     if (show === 'walk') {
       for (const [id, w] of Object.entries(rv.walk)) posOverride[id] = hexCenter(w[at]);
       // those stopped in a conflict at this step march halfway towards the field and come back
@@ -264,11 +266,21 @@ export default function Campaign() {
     }
   }
   const mapOrders = walking && show === 'orders' ? [...rv.orders.R, ...rv.orders.K] : giving ? draft : [];
+  // who is on the move in this step (they march and raise dust)
+  const moving = new Set<string>();
+  if (show === 'walk' && rv) {
+    for (const [id, w] of Object.entries(rv.walk)) if (at > 0 && w[at] !== w[at - 1]) moving.add(id);
+    for (const e of explained) if (e.step === step) for (const t of e.turnedBack) moving.add(t.army);
+  }
+  // buildings ordered this round show up as construction sites
+  const construction = (walking && rv ? (['R', 'K'] as House[]).flatMap((x) => rv.orders[x].map((o) => ({ o, x }))) : giving ? draft.map((o) => ({ o, x: h })) : [])
+    .flatMap(({ o, x }) => (o.kind === 'build' ? [{ hex: o.hex, b: o.b, house: x }] : []));
   const plan = planning && selPos && mode === 'move' ? { from: selPos, path, house: h } : null;
   const mapProps = {
     c: mapC, selectedHex: selHex, selectedUnit: unit?.id ?? null, reach: siteReach ?? reach, plan, orders: mapOrders,
     onHex, onArmy: selectArmy, onAgent: selectAgent, labels,
     focus: card ? [card.hex, ...(card.hex2 ? [card.hex2] : [])] : undefined, posOverride, stepMs: show === 'walk' ? STEP_MS - 50 : 900,
+    moving, construction,
   };
 
   const forage = selArmy ? LAND[hexLand(selArmy.hex)].forage : 0;
