@@ -68,6 +68,30 @@ function tooMany(ip: string, now = Date.now()) {
   return list.length > 5;
 }
 
+type Env = Record<string, string | undefined>;
+// Node functions on Vercel expose the variables on process.env.
+const readEnv = (): Env => {
+  try { return (typeof process !== 'undefined' && process.env) || {}; } catch { return {}; }
+};
+declare const process: { env: Env } | undefined;
+
+/** Facts about the setup without revealing any value: is the token there, which environment, which commit, similar names. */
+export function diagnose(env: Env = readEnv()) {
+  const token = env.GITHUB_TOKEN?.trim();
+  return {
+    configured: !!token,
+    tokenLooksLike: !token ? 'fehlt' : token.startsWith('github_pat_') ? 'fein granularer Token' : token.startsWith('ghp_') ? 'klassischer Token' : 'unbekanntes Format',
+    environment: env.VERCEL_ENV ?? 'unbekannt',
+    commit: env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'unbekannt',
+    repo: env.GITHUB_REPO || 'WilberforthWindfall/deckmate',
+    similarNames: Object.keys(env).filter((k) => /git|token|hub/i.test(k) && !k.startsWith('VERCEL_')).sort(),
+  };
+}
+
+export async function GET(): Promise<Response> {
+  return json(200, diagnose());
+}
+
 const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
 
 export async function POST(request: Request): Promise<Response> {
@@ -79,10 +103,16 @@ export async function POST(request: Request): Promise<Response> {
   const ip = (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unbekannt';
   if (tooMany(ip)) return json(429, { error: 'Danke! Du hast gerade schon mehrfach Feedback geschickt, bitte versuch es in ein paar Minuten noch einmal.' });
 
-  const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
-  const token = env.GITHUB_TOKEN;
+  const env = readEnv();
+  const token = env.GITHUB_TOKEN?.trim();
   const repo = env.GITHUB_REPO || 'WilberforthWindfall/deckmate';
-  if (!token) return json(503, { error: 'Der Feedback-Briefkasten ist noch nicht eingerichtet (GITHUB_TOKEN fehlt).' });
+  if (!token) {
+    const d = diagnose(env);
+    return json(503, {
+      error: `Der Feedback-Briefkasten ist noch nicht eingerichtet (GITHUB_TOKEN fehlt in der Umgebung „${d.environment}“, Stand ${d.commit}${d.similarNames.length ? `; gefundene ähnliche Namen: ${d.similarNames.join(', ')}` : ''}).`,
+      diagnose: d,
+    });
+  }
 
   const issue = toIssue(x, { userAgent: request.headers.get('user-agent') ?? '' });
   const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
@@ -91,8 +121,12 @@ export async function POST(request: Request): Promise<Response> {
     body: JSON.stringify(issue),
   });
   if (!res.ok) {
-    console.error('[feedback] GitHub', res.status, await res.text().catch(() => ''));
-    return json(502, { error: 'Das Feedback konnte gerade nicht gespeichert werden. Bitte später noch einmal versuchen.' });
+    const text = await res.text().catch(() => '');
+    console.error('[feedback] GitHub', res.status, text);
+    const hint = res.status === 401 ? 'Der Token wird von GitHub abgelehnt (abgelaufen oder falsch kopiert).'
+      : res.status === 403 || res.status === 404 ? 'Der Token darf in diesem Repository keine Issues anlegen (Repository-Zugriff oder Berechtigung „Issues: Read and write“ prüfen).'
+      : '';
+    return json(502, { error: `Das Feedback konnte gerade nicht gespeichert werden (GitHub ${res.status}).${hint ? ` ${hint}` : ' Bitte später noch einmal versuchen.'}` });
   }
   const created = (await res.json()) as { number?: number };
   return json(201, { ok: true, number: created.number });
