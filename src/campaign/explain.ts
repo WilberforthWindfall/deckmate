@@ -52,13 +52,15 @@ export function explain(k: Conflict): Explanation {
     const L: House | null = W === 'R' ? 'K' : W === 'K' ? 'R' : null;
     return {
       prov: k.prov,
-      title: `Wettlauf um ${pn(k.prov)}`,
+      title: k.battle ? `Feldschlacht um ${pn(k.prov)}` : `Wettlauf um ${pn(k.prov)}`,
       sides, ratio: ratioText(k.R.total, k.K.total),
       result: W && L
         ? `Beide Häuser marschierten gleichzeitig nach ${pn(k.prov)}. ${hn(W)} ist ${need} und besetzt die Provinz. ${hn(L)} kehrt nach ${pn(k[L].from)} um, ohne Verluste.`
-        : `Beide Häuser marschierten gleichzeitig nach ${pn(k.prov)}. Keine Seite ist ${need}, darum kehren beide um. ${pn(k.prov)} bleibt, wie es war.`,
+        : k.battle
+          ? `Beide Häuser marschierten gleichzeitig nach ${pn(k.prov)}, keine Seite ist ${need}. Die Heere treffen im Feld aufeinander: Es kommt zur Feldschlacht. ${hn(k.battle.attacker)} führt die Offiziere${k.battle.coin ? ' (gleich stark, der Würfel hat entschieden)' : ', weil es das stärkere Heer ist'}. Der Sieger besetzt ${pn(k.prov)}, der Verlierer kehrt um. Rechts in der Leiste wählt ihr Brett oder Auswürfeln.`
+          : `Beide Häuser marschierten gleichzeitig nach ${pn(k.prov)}. Keine Seite ist ${need}, darum kehren beide um. ${pn(k.prov)} bleibt, wie es war.`,
       winner: W,
-      turnedBack: (W ? [L!] : (['R', 'K'] as House[])).map((h) => ({ army: k[h].army, from: k[h].from, to: k.prov })),
+      turnedBack: W ? [{ army: k[L!].army, from: k[L!].from, to: k.prov }] : k.battle ? [] : (['R', 'K'] as House[]).map((h) => ({ army: k[h].army, from: k[h].from, to: k.prov })),
     };
   }
   const A = k.att.house, D = k.def.house;

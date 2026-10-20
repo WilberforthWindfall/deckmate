@@ -5,6 +5,7 @@ import { act, type Action } from '../game/actions.ts';
 import { battleResult } from '../game/battle.ts';
 import type { GameState } from '../game/rules.ts';
 import { HelpButton } from '../campaign/Help.tsx';
+import Overview from '../campaign/Overview.tsx';
 import { FeedbackForm } from '../components/Feedback.tsx';
 import CampaignMap from '../campaign/CampaignMap.tsx';
 import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
@@ -18,6 +19,12 @@ import { ADJ, HOUSES, LAND, PROV, PROVINCES, provCenter, type House } from '../c
 // Campaign prototype on one device: houses give their orders in turn (the other player looks away), then all resolve at once.
 
 const KEY = 'deckmate.kampagne.v1';
+/** Width of the left panel, which is always open (overview or city). */
+const LEFT = 330;
+const LEFT_PANEL = {
+  position: 'absolute' as const, left: 0, top: 58, bottom: 0, width: LEFT, zIndex: 6, overflowY: 'auto' as const, gap: 12,
+  padding: 16, background: 'var(--hull)', borderRight: '1px solid var(--rope)',
+};
 const load = (): CampaignState => {
   try { const s = localStorage.getItem(KEY); if (s) { const c = JSON.parse(s) as CampaignState; c.buildings ??= {}; return c; } } catch { /* ignore */ }
   return newCampaign();
@@ -101,7 +108,8 @@ export default function Campaign() {
       }
       if (!pt) return;
       const r = box.getBoundingClientRect();
-      setCardPos({ x: pt[0] - r.left, y: pt[1] - r.top, w: r.width, h: r.height });
+      const next = { x: Math.round(pt[0] - r.left), y: Math.round(pt[1] - r.top), w: Math.round(r.width), h: Math.round(r.height) };
+      setCardPos((old) => (old && old.x === next.x && old.y === next.y && old.w === next.w && old.h === next.h ? old : next));
     };
     place();
     window.addEventListener('resize', place);
@@ -246,7 +254,7 @@ export default function Campaign() {
           </div>
         </div>
 
-        <div ref={mapBox} style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: city ? 330 : 0, transition: 'padding-left .2s' }}>
+        <div ref={mapBox} style={{ flex: 1, minHeight: 0, position: 'relative', paddingLeft: LEFT }}>
           {view3d ? (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               <CampaignMap3D c={mapC} selected={sel} targets={targets} orders={mapOrders} onProvince={(id) => onProvince(id)}
@@ -258,7 +266,7 @@ export default function Campaign() {
               onArmy={onArmy} selectedArmy={armySel} labels={labels} svgRef={svgRef}
               focus={card ? [card.prov, ...(card.prov2 ? [card.prov2] : [])] : undefined} posOverride={halfway} />
           )}
-          <div role="group" aria-label="Kartenansicht" className="row" style={{ position: 'absolute', left: (city ? 330 : 0) + 12, top: 12, gap: 0, zIndex: 3 }}>
+          <div role="group" aria-label="Kartenansicht" className="row" style={{ position: 'absolute', left: LEFT + 12, top: 12, gap: 0, zIndex: 3 }}>
             {[false, true].map((d) => (
               <button key={String(d)} type="button" className={view3d === d ? 'on' : ''} aria-pressed={view3d === d} onClick={() => setView3d(d)}
                 style={{ borderRadius: d ? '0 6px 6px 0' : '6px 0 0 6px', marginLeft: d ? -1 : 0 }}>{d ? '3D' : '2D'}</button>
@@ -275,7 +283,7 @@ export default function Campaign() {
 
           {giving && selArmy && selArmy.house === h && (
             <div role="dialog" aria-label={`Heer in ${PROV[selArmy.prov].n}`} className="card" style={{
-              position: 'absolute', left: (city ? 330 : 0) + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 660, zIndex: 5,
+              position: 'absolute', left: LEFT + 16, right: 16, bottom: 16, margin: '0 auto', maxWidth: 660, zIndex: 5,
               display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'var(--hull)', borderColor: 'var(--brass)',
               boxShadow: '0 10px 30px rgba(0,0,0,.4)',
             }}>
@@ -313,8 +321,12 @@ export default function Campaign() {
           )}
         </div>
 
-        {city && <CityPanel c={c} prov={city} house={h} giving={giving} draft={draft} why={why} add={add}
-          orderIndex={cityOrder(city)} onRemove={(i) => setDraft(draft.filter((_, j) => j !== i))} onClose={() => setCity(null)} />}
+        <div className="stack" style={LEFT_PANEL}>
+          {city
+            ? <CityPanel c={c} prov={city} house={h} giving={giving} draft={draft} why={why} add={add}
+                orderIndex={cityOrder(city)} onRemove={(i) => setDraft(draft.filter((_, j) => j !== i))} onClose={() => setCity(null)} />
+            : <Overview key={h} c={c} house={h} giving={giving} draft={draft} onArmy={onArmy} onCity={(id) => { setSel(id); openCity(id); }} />}
+        </div>
 
         {msg && <div className="toast" role="alert" style={{ top: 76 }}>{msg}</div>}
 
@@ -335,7 +347,7 @@ export default function Campaign() {
         )}
 
         {c.phase === 'orders' && !ready && !show && banner === null && (
-          <div className="overlay"><div className="dialog">
+          <div className="overlay" style={{ zIndex: 12 }}><div className="dialog">
             <h2>Runde {c.round}: {HOUSES[h].n}</h2>
             <p>Gib das Gerät an <b>{HOUSES[h].n}</b>. {HOUSES[OTHER[h]].n} schaut bitte weg, die Befehle sind geheim.</p>
             {c.sealed[OTHER[h]] && <p>{HOUSES[OTHER[h]].n} hat seine Befehle schon versiegelt.</p>}
@@ -368,8 +380,10 @@ export default function Campaign() {
               const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
               return (
                 <div key={b.id} className="card stack" style={{ gap: 6 }}>
-                  <b>Schlacht um {PROV[b.prov].n}</b>
-                  <span className="rule">{HOUSES[att.house].n} ({att.size}, Stärke {b.attStrength}) greift {HOUSES[def.house].n} ({def.size}, Stärke {b.defStrength}) an · {LAND[PROV[b.prov].land].n}</span>
+                  <b>{b.field ? 'Feldschlacht' : 'Schlacht'} um {PROV[b.prov].n}</b>
+                  <span className="rule">{b.field
+                    ? `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) trifft auf ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) im Feld · ${LAND[PROV[b.prov].land].n}. ${HOUSES[att.house].n} führt die Offiziere.`
+                    : `${HOUSES[att.house].n} (${att.size}, Stärke ${num(b.attStrength)}) greift ${HOUSES[def.house].n} (${def.size}, Stärke ${num(b.defStrength)}) an · ${LAND[PROV[b.prov].land].n}`}</span>
                   <div className="row">
                     <button type="button" className="primary" onClick={() => setBattle({ id: b.id, st: battleGame(c, b.id, Math.random) })}>Auf dem Brett austragen</button>
                     <button type="button" onClick={() => setC(autoBattle(c, b.id, Math.random))}>Auswürfeln</button>
@@ -499,16 +513,11 @@ function CityPanel({ c, prov, house, giving, draft, why, add, orderIndex, onRemo
     );
   };
   return (
-    <div role="dialog" aria-label={`Stadt ${p.n}`} className="stack" style={{
-      position: 'absolute', left: 0, top: 58, bottom: 0, width: 330, zIndex: 6, overflowY: 'auto', gap: 12,
-      padding: 16, background: 'var(--hull)', borderRight: '1px solid var(--brass)', boxShadow: '8px 0 24px rgba(0,0,0,.35)',
-    }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="stack" style={{ gap: 0 }}>
-          <span className="lbl">Stadt</span>
-          <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontWeight: 600 }}>{p.n}</h2>
-        </div>
-        <button type="button" className="ghost" aria-label="Stadtmenü schließen" onClick={onClose}>×</button>
+    <div role="region" aria-label={`Stadt ${p.n}`} className="stack" style={{ gap: 12 }}>
+      <button type="button" className="ghost" onClick={onClose} style={{ alignSelf: 'flex-start', padding: '4px 8px' }}>‹ Übersicht</button>
+      <div className="stack" style={{ gap: 0 }}>
+        <span className="lbl">Stadt</span>
+        <h2 style={{ margin: 0, fontFamily: 'var(--display)', fontWeight: 600 }}>{p.n}</h2>
       </div>
       <div className="row" style={{ gap: 6 }}>
         <span className="chip"><i style={{ background: owner ? HOUSES[owner].color : '#6E6A60' }} />{owner ? HOUSES[owner].n : 'unbeansprucht'}</span>

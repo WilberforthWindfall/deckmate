@@ -12,7 +12,7 @@ function chapters(): Chapter[] {
     {
       n: 'Befehle', icon: '✒', items: [
         { t: 'Befehl', d: `Jedes Haus gibt pro Runde bis zu ${ORDERS_PER_ROUND} Befehle. Sie werden geheim abgegeben, das Gerät geht dafür reihum. Danach werden alle Befehle beider Häuser gleichzeitig ausgeführt.` },
-        { t: 'Ziehen', d: 'Das Heer marschiert in eine angrenzende Provinz. Ist sie leer, gehört sie dir. Steht dort ein fremdes Heer, wird angegriffen. Ziehen beide Häuser in dieselbe leere Provinz, gewinnt nur eine klare Übermacht, sonst prallen beide ab.', tags: 'bewegen angreifen marsch' },
+        { t: 'Ziehen', d: 'Das Heer marschiert in eine angrenzende Provinz. Ist sie leer, gehört sie dir. Steht dort ein fremdes Heer, wird angegriffen. Ziehen beide Häuser in dieselbe Provinz, besetzt sie eine klare Übermacht, sonst kommt es zur Feldschlacht.', tags: 'bewegen angreifen marsch' },
         { t: 'Unterstützen', d: 'Das Heer bleibt stehen und hilft einem eigenen Heer bei dessen Angriff oder Verteidigung in einer angrenzenden Provinz. Es zählt mit seiner halben Größe zur Stärke und bringt in einer Brett-Schlacht eine Extrakarte.', tags: 'hilfe support' },
         { t: 'Fouragieren', d: `Das Heer bleibt stehen und versorgt sich aus dem Land: Es wächst um 1 Figur, auf Ackerland um 2. Im Gebirge gibt es nichts zu holen. Ein Heer hat höchstens ${MAX_ARMY} Figuren. Praktisch, um ohne Gold Verluste auszugleichen.`, tags: 'fourage nahrung versorgung auffüllen' },
         { t: 'Rekrutieren', d: `Stadtbefehl für ${COST.recruit} Gold: Die Stadt stellt 3 neue Figuren auf, mit Kaserne 4. Sie stoßen erst nach dem Abmarsch dazu, also zum Heer, das in der Stadt bleibt, oder als neues Heer.`, tags: 'stadt truppen' },
@@ -30,7 +30,8 @@ function chapters(): Chapter[] {
         { t: 'Auswürfeln', d: 'Schneller Ersatz für die Brett-Schlacht. Die Siegchance entspricht dem Stärkeverhältnis. Der Sieger verliert rund 30 % seiner Figuren, der Verlierer rund die Hälfte.', tags: 'würfel schnell' },
         { t: 'Extrakarte', d: 'Jedes unterstützende Heer gibt seiner Seite in der Brett-Schlacht eine zusätzliche Karte auf die Hand.', tags: 'karte unterstützung' },
         { t: 'Rückzug', d: 'Der Verlierer weicht in eine angrenzende eigene oder freie Provinz aus. Gibt es keinen Weg, löst sich das Heer auf. Ein abgewehrter Angreifer kehrt in seine Ausgangsprovinz zurück.', tags: 'flucht' },
-        { t: 'Abprallen', d: 'Ziehen zwei Heere gegeneinander (Platztausch), kommt keines an. Auch beim Wettlauf in dieselbe Provinz bleiben beide stehen, wenn keine klare Übermacht besteht.', tags: 'platztausch wettlauf' },
+        { t: 'Abprallen', d: 'Ziehen zwei Heere gegeneinander (Platztausch), begegnen sie sich unterwegs. Keines kommt an, beide bleiben stehen.', tags: 'platztausch' },
+        { t: 'Wettlauf und Feldschlacht', d: 'Ziehen beide Häuser gleichzeitig in dieselbe Provinz, gewinnt eine mindestens 1,5-fache Übermacht kampflos, die andere Seite kehrt um. Ist es knapper, treffen sich die Heere im Feld: Das stärkere Heer führt die Offiziere (bei Gleichstand entscheidet der Würfel), der Sieger besetzt die Provinz, der Verlierer kehrt um. Gelände gibt dabei keinem Verteidigungsbonus.', tags: 'wettlauf feldschlacht gleichzeitig' },
       ],
     },
     {

@@ -8,7 +8,7 @@ import { ADJ, HOUSES, LAND, PROV, PROVINCES, adjacent, type House } from './map.
 export type Spec = Army['spec'];
 export type SpecKey = keyof Spec;
 export const SPEC_NAME: Record<SpecKey, string> = { CAP: 'Captain', KAP: 'Kaplan', KAN: 'Kanonade', MAR: 'Marine' };
-const SPEC_MAX: Spec = { CAP: 1, KAP: 2, KAN: 2, MAR: 2 };
+export const SPEC_MAX: Spec = { CAP: 1, KAP: 2, KAN: 2, MAR: 2 };
 
 export type BuildingKey = 'kapelle' | 'giesserei' | 'kaserne' | 'messe' | 'markt' | 'mauer';
 export const BUILDINGS: Record<BuildingKey, { n: string; cost: number; effect: string; unlocks?: SpecKey }> = {
@@ -50,6 +50,9 @@ export interface PendingBattle {
   defCards: number;
   attStrength: number;
   defStrength: number;
+  /** Field battle after a close race into the same province: nobody held it, the loser turns back to defFrom. */
+  field?: boolean;
+  defFrom?: string;
 }
 
 /** One side of a conflict with the parts of its strength. */
@@ -61,7 +64,7 @@ export interface ConflictSide {
 }
 export type Conflict =
   | { kind: 'swap'; a: { house: House; army: string; from: string; to: string; size: number }; b: { house: House; army: string; from: string; to: string; size: number } }
-  | { kind: 'race'; prov: string; R: ConflictSide; K: ConflictSide; winner: House | null }
+  | { kind: 'race'; prov: string; R: ConflictSide; K: ConflictSide; winner: House | null; battle?: { attacker: House; coin: boolean } }
   | { kind: 'attack'; prov: string; att: ConflictSide; def: ConflictSide; outcome: 'overrun' | 'repelled' | 'battle'; retreat?: string | null; attLost?: number; defLost?: number };
 
 export interface Campaign {
@@ -247,7 +250,7 @@ const lose = (a: CArmy, share: number) => {
   for (const k of Object.keys(a.spec) as SpecKey[]) a.spec[k] = Math.min(a.spec[k], Math.max(0, a.size - 1));
 };
 
-function resolve(c: Campaign, _rng: Rng): Campaign {
+function resolve(c: Campaign, rng: Rng): Campaign {
   c.reveal = { round: c.round, armies: clone(c.armies), owner: clone(c.owner), gold: { ...c.gold }, orders: clone(c.orders) };
   const log: string[] = [`Runde ${c.round}: Die Befehle werden aufgedeckt.`];
   const conflicts: Conflict[] = [];
@@ -288,6 +291,7 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
       moves = moves.filter((x) => x !== m && x !== back); log.push(`${hn(m.h)} und ${hn(back.h)} prallen zwischen ${pn(m.from)} und ${pn(m.to)} aufeinander, beide halten ihre Stellung.`);
     }
   }
+  const battles: PendingBattle[] = [];
   // b) both houses into the same province
   for (const to of [...new Set(moves.map((m) => m.to))]) {
     const r = moves.find((m) => m.to === to && m.h === 'R'), k = moves.find((m) => m.to === to && m.h === 'K');
@@ -297,11 +301,23 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
     conflicts.push(race);
     if (sr >= AUTO_WIN * sk) { moves = moves.filter((m) => m !== k); log.push(`Wettlauf um ${pn(to)}: Ravensmoor ist klar stärker (${sr} zu ${sk}), Kerrow kehrt um.`); }
     else if (sk >= AUTO_WIN * sr) { moves = moves.filter((m) => m !== r); log.push(`Wettlauf um ${pn(to)}: Kerrow ist klar stärker (${sk} zu ${sr}), Ravensmoor kehrt um.`); }
-    else { moves = moves.filter((m) => m !== r && m !== k); log.push(`Wettlauf um ${pn(to)}: Patt (${sr} zu ${sk}), beide kehren um.`); }
+    else {
+      // Close race: the armies meet in the field. The stronger one leads the officers; on a tie the dice decide.
+      moves = moves.filter((m) => m !== r && m !== k);
+      const coin = sr === sk;
+      const A = sr > sk || (coin && rng() < 0.5) ? r : k, D = A === r ? k : r;
+      const sa = A === r ? sr : sk, sd = A === r ? sk : sr;
+      (race as Conflict & { kind: 'race' }).battle = { attacker: A.h, coin };
+      battles.push({
+        id: `b${c.nextId++}`, prov: to, attacker: A.a.id, defender: D.a.id, from: A.from, defFrom: D.from, field: true,
+        attCards: supFor(A.h, to).length, defCards: supFor(D.h, to).length, attStrength: sa, defStrength: sd,
+      });
+      A.a.prov = `@${to}`; D.a.prov = `@${to}`;
+      log.push(`Wettlauf um ${pn(to)}: knapp (${sr} zu ${sk}), es kommt zur Feldschlacht. ${hn(A.h)} führt die Offiziere${coin ? ' (per Würfel)' : ''}.`);
+    }
   }
   // c) remaining moves: into empty or own provinces, or attacks on holders
   const leaving = new Set(moves.map((m) => m.a.id));
-  const battles: PendingBattle[] = [];
   for (const m of moves) {
     const holder = c.armies.find((x) => x.prov === m.to && x.house !== m.h && !leaving.has(x.id));
     if (!holder) { log.push(`${hn(m.h)} zieht nach ${pn(m.to)}${c.owner[m.to] && c.owner[m.to] !== m.h ? ' und nimmt die Provinz ein' : ''}.`); continue; }
@@ -355,8 +371,8 @@ function resolve(c: Campaign, _rng: Rng): Campaign {
   }
   // Armies waiting for their battle stand "between" provinces: they have left their origin.
   for (const b of battles) {
-    const a = armyById(c, b.attacker)!;
-    a.prov = `@${b.prov}`;
+    armyById(c, b.attacker)!.prov = `@${b.prov}`;
+    if (b.field) armyById(c, b.defender)!.prov = `@${b.prov}`;
   }
 
   c.report = log;
@@ -380,8 +396,18 @@ export function applyBattle(prev: Campaign, id: string, out: BattleOutcome): Cam
   const attReserve = Math.max(0, att.size - MAX_ARMY), defReserve = Math.max(0, def.size - 12);
   att.size = out.attacker.size + attReserve; att.spec = out.attacker.spec;
   def.size = out.defender.size + defReserve;
-  log.push(`Schlacht um ${pn(b.prov)} ${out.how}: ${out.attackerWon ? `${hn(att.house)} siegt` : `${hn(def.house)} hält stand`}.`);
-  if (out.attackerWon) {
+  log.push(`${b.field ? 'Feldschlacht' : 'Schlacht'} um ${pn(b.prov)} ${out.how}: ${out.attackerWon ? `${hn(att.house)} siegt` : b.field ? `${hn(def.house)} siegt` : `${hn(def.house)} hält stand`}.`);
+  if (b.field) {
+    // Winner takes the province, the loser turns back to where it came from.
+    const [win, lose, back] = out.attackerWon ? [att, def, b.defFrom!] : [def, att, b.from];
+    win.prov = out.attackerWon ? b.from : b.defFrom!;
+    if (win.size > 0) placeArmy(c, win, b.prov, log); else c.armies = c.armies.filter((x) => x.id !== win.id);
+    lose.prov = back;
+    const blocked = c.armies.some((x) => x.prov === back && x.house !== lose.house);
+    if (lose.size <= 0) c.armies = c.armies.filter((x) => x.id !== lose.id);
+    else if (blocked) retreatOrDie(c, lose, back, [b.prov], log);
+    else { log.push(`${hn(lose.house)} kehrt mit ${lose.size} Figuren nach ${pn(back)} zurück.`); placeArmy(c, lose, back, log); }
+  } else if (out.attackerWon) {
     retreatOrDie(c, def, b.prov, [b.from], log);
     att.prov = b.from;
     if (att.size > 0) placeArmy(c, att, b.prov, log); else c.armies = c.armies.filter((x) => x.id !== att.id);
@@ -425,6 +451,12 @@ export function battleGame(c: Campaign, id: string, rng: Rng): GameState {
   return st;
 }
 
+/** Gold a house receives at the end of the round: 1 per province, +2 per city, +2 per market. */
+export function incomeOf(c: Campaign, h: House) {
+  const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
+  return provs.length + provs.filter((p) => p.city).length * 2 + provs.filter((p) => hasBuilding(c, p.id, 'markt')).length * 2;
+}
+
 export function score(c: Campaign, h: House) {
   const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
   return provs.length + provs.filter((p) => p.city).length * 2;
@@ -440,7 +472,7 @@ function endRound(c: Campaign): Campaign {
   for (const h of ['R', 'K'] as House[]) {
     const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
     const markets = provs.filter((p) => hasBuilding(c, p.id, 'markt')).length;
-    const income = provs.length + provs.filter((p) => p.city).length * 2 + markets * 2;
+    const income = incomeOf(c, h);
     c.gold[h] += income;
     log.push(`${hn(h)} erhält ${income} Gold (${provs.length} Provinzen, ${provs.filter((p) => p.city).length} Städte${markets ? `, ${markets} Märkte` : ''}).`);
   }

@@ -156,6 +156,7 @@ export default function CampaignMap({ c, selected, targets, orders, onProvince, 
         return (
           <g key={b.id} pointerEvents="none">
             <Token x={x - 56} y={y} house={att.house} size={att.size} spec={att.spec.CAP + att.spec.KAP + att.spec.KAN + att.spec.MAR} />
+            {b.field && (() => { const def = c.armies.find((x) => x.id === b.defender)!; return <Token x={x} y={y} house={def.house} size={def.size} spec={def.spec.CAP + def.spec.KAP + def.spec.KAN + def.spec.MAR} />; })()}
             <circle cx={x - 28} cy={y - 24} r={13} fill="#1E1A15" stroke="#E2C27F" strokeWidth={2} />
             <path transform={`translate(${x - 28},${y - 24})`} d="M-6,-6 L6,6 M6,-6 L-6,6" stroke="#F1E3BE" strokeWidth={2} strokeLinecap="round" />
           </g>
