@@ -71,7 +71,7 @@ export default function CampaignMap3D(p: Props) {
         ))}
       </div>
       <div style={{ position: 'absolute', right: 12, top: 54, zIndex: 3, textAlign: 'right', fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'color-mix(in srgb, var(--hull) 80%, transparent)', color: 'var(--parchment)' }}>
-        <b style={{ color: 'var(--brass)' }}>{mood.n}</b> · Ziehen dreht · rechte Maustaste oder Umschalt verschiebt · Mausrad zoomt
+        <span title="Ziehen dreht · rechte Maustaste oder Umschalt verschiebt · Mausrad zoomt" style={{ color: 'var(--brass)' }}>{mood.n}</span>
       </div>
     </div>
   );

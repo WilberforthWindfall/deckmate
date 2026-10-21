@@ -17,6 +17,7 @@ export default function Lobby() {
   const [cName, setCName] = useState('');
   const [cHouse, setCHouse] = useState<House | 'any'>('any');
   const [cOpts, setCOpts] = useState<CampaignOptions>(DEFAULT_OPTIONS);
+  const [kind, setKind] = useState<'partie' | 'kampagne'>('partie');
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
@@ -119,50 +120,52 @@ export default function Lobby() {
             )}
           </div>
           <div className="stack">
-            <form className="card stack" onSubmit={create}>
-              <h2>Neue Partie</h2>
-              <label className="stack" style={{ gap: 4 }}><span className="lbl">Name</span>
-                <input id="gname" value={name} onChange={(e) => setName(e.target.value)} placeholder="Wache auf der Tempest" maxLength={60} /></label>
-              <label className="stack" style={{ gap: 4 }}><span className="lbl">Deine Seite</span>
-                <select id="gside" value={side} onChange={(e) => setSide(e.target.value as Side | 'any')}>
-                  <option value="any">Zufällig</option><option value="M">Mannschaft</option><option value="O">Offiziere</option>
-                </select></label>
-              <button type="submit" className="primary" disabled={busy}>Partie anlegen</button>
-              <p className="rule" style={{ margin: 0 }}>Danach kannst du einen Einladungslink teilen oder warten, bis jemand aus der Lobby beitritt.</p>
-            </form>
             <div className="card stack">
-              <h2>An einem Gerät</h2>
-              <p className="rule" style={{ margin: 0 }}>Beide Seiten spielen abwechselnd am selben Bildschirm. Mit Testszenen zum Prüfen der Regeln.</p>
-              <Link to="/lokal"><button type="button">Lokale Partie öffnen</button></Link>
-            </div>
-            <div className="card stack">
-              <h2>Kampagnen-Schlacht</h2>
-              <p className="rule" style={{ margin: 0 }}>Prototyp: Zwei Heere aus dem Kampagnenmodus treffen sich auf dem Brett. Heere und Gelände wählen, aufstellen, kämpfen.</p>
-              <Link to="/schlacht"><button type="button">Schlacht ausprobieren</button></Link>
-            </div>
-            <form className="card stack" onSubmit={createC}>
-              <h2>Neue Kampagne um Eridanos</h2>
-              <p className="rule" style={{ margin: 0 }}>Zwei Spieler, jeder an seinem Gerät: Ravensmoor gegen Kerrow auf der Hexkarte. Beide geben ihre Befehle gleichzeitig, knappe Kämpfe werden als Deckmate-Partie zwischen euch ausgetragen.</p>
-              <label className="stack" style={{ gap: 4 }}><span className="lbl">Name</span>
-                <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Der Winter von Aldfurt" maxLength={60} /></label>
-              <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-                <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Dein Haus</span>
-                  <select value={cHouse} onChange={(e) => setCHouse(e.target.value as House | 'any')}>
-                    <option value="any">Zufällig</option><option value="R">Ravensmoor</option><option value="K">Kerrow</option>
-                  </select></label>
-                <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Runden</span>
-                  <select value={cOpts.maxRounds} onChange={(e) => setCOpts({ ...cOpts, maxRounds: Number(e.target.value) })}>
-                    <option value={6}>6 · kurz</option><option value={10}>10 · normal</option><option value={15}>15 · lang</option>
-                  </select></label>
+              <h2>Neues Spiel</h2>
+              <div className="seg" role="tablist" aria-label="Art" style={{ alignSelf: 'flex-start' }}>
+                <button type="button" role="tab" aria-selected={kind === 'partie'} onClick={() => setKind('partie')}>Deckmate-Partie</button>
+                <button type="button" role="tab" aria-selected={kind === 'kampagne'} onClick={() => setKind('kampagne')}>Kampagne</button>
               </div>
-              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.goals} onChange={(e) => setCOpts({ ...cOpts, goals: e.target.checked })} /><span>Geheime Ziele</span></label>
-              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.experience} onChange={(e) => setCOpts({ ...cOpts, experience: e.target.checked })} /><span>Erfahrung der Heere</span></label>
-              <button type="submit" className="primary" disabled={busy}>Kampagne anlegen</button>
-              <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand aus der Lobby beitritt. <Link to="/kampagne">An einem Gerät oder gegen den Computer spielen</Link></p>
-            </form>
+              {kind === 'partie' ? (
+                <form className="stack" onSubmit={create}>
+                  <label className="stack" style={{ gap: 4 }}><span className="lbl">Name</span>
+                    <input id="gname" value={name} onChange={(e) => setName(e.target.value)} placeholder="Wache auf der Tempest" maxLength={60} /></label>
+                  <label className="stack" style={{ gap: 4 }}><span className="lbl">Deine Seite</span>
+                    <select id="gside" value={side} onChange={(e) => setSide(e.target.value as Side | 'any')}>
+                      <option value="any">Zufällig</option><option value="M">Mannschaft</option><option value="O">Offiziere</option>
+                    </select></label>
+                  <button type="submit" className="primary" disabled={busy}>Partie anlegen</button>
+                </form>
+              ) : (
+                <form className="stack" onSubmit={createC}>
+                  <label className="stack" style={{ gap: 4 }}><span className="lbl">Name</span>
+                    <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Der Winter von Aldfurt" maxLength={60} /></label>
+                  <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                    <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Dein Haus</span>
+                      <select value={cHouse} onChange={(e) => setCHouse(e.target.value as House | 'any')}>
+                        <option value="any">Zufällig</option><option value="R">Ravensmoor</option><option value="K">Kerrow</option>
+                      </select></label>
+                    <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Runden</span>
+                      <select value={cOpts.maxRounds} onChange={(e) => setCOpts({ ...cOpts, maxRounds: Number(e.target.value) })}>
+                        <option value={6}>6 · kurz</option><option value={10}>10 · normal</option><option value={15}>15 · lang</option>
+                      </select></label>
+                  </div>
+                  <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.goals} onChange={(e) => setCOpts({ ...cOpts, goals: e.target.checked })} /><span>Geheime Ziele</span></label>
+                  <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.experience} onChange={(e) => setCOpts({ ...cOpts, experience: e.target.checked })} /><span>Erfahrung der Heere</span></label>
+                  <button type="submit" className="primary" disabled={busy}>Kampagne anlegen</button>
+                </form>
+              )}
+              <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand beitritt.</p>
+            </div>
+            <div className="card stack" style={{ gap: 4 }}>
+              <h2>Ohne Mitspieler online</h2>
+              <Link className="lobby-link" to="/lokal">Partie an einem Gerät<span>›</span></Link>
+              <Link className="lobby-link" to="/kampagne">Kampagne an einem Gerät oder gegen den Computer<span>›</span></Link>
+              <Link className="lobby-link" to="/schlacht">Kampagnen-Schlacht ausprobieren<span>›</span></Link>
+            </div>
             <div className="card stack">
               <h2>Feedback an die Werft</h2>
-              <p className="rule" style={{ margin: 0 }}>Etwas gefunden, das nervt, oder eine Idee für Deckmate? Wünsche und Kritik landen direkt bei der Entwicklung.</p>
+              <p className="rule" style={{ margin: 0 }}>Wünsche und Kritik landen direkt bei der Entwicklung.</p>
               <FeedbackButton where="lobby" defaultName={user.displayName ?? ''} context={{ Bilanz: `${record.wins} ${record.wins === 1 ? 'Sieg' : 'Siege'}, ${record.losses} ${record.losses === 1 ? 'Niederlage' : 'Niederlagen'}` }} />
             </div>
           </div>

@@ -68,7 +68,7 @@ export default function OnlineCampaign() {
   }
 
   const session: OnlineSession = {
-    id, me, c, names: g.names, name: g.name,
+    id, me, c, names: g.names, name: g.name, uid: user.uid, userName: user.displayName || user.email?.split('@')[0] || 'Unbekannt',
     commit: (fn) => commitCampaign(user, id, fn),
     startBattle: (battleId) => startCampaignBattle(user, id, battleId),
   };

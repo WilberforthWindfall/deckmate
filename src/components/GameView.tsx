@@ -130,7 +130,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   return (
     <div className="app">
       <div className="stage" ref={host}>
-        <div className="hud"><h1>Deckmate</h1><span>Ziehen zum Drehen · Mausrad zum Zoomen</span></div>
+        <div className="hud" title="Ziehen dreht · Mausrad zoomt"><h1>Deckmate</h1></div>
         {toast && <div className="toast" role="alert">{toast}</div>}
         <div className="viewbtns">
           <button type="button" onClick={() => table.current?.face('M')}>Mannschaft</button>
@@ -270,28 +270,27 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             {!freeMode && mySide && p.s !== mySide && p.s === st.turn && <div className="warn" style={{ marginTop: 8 }}>Das ist eine Figur der Gegenseite.</div>}
             {mustCap ? <div className="warn" style={{ marginTop: 8 }}>Schlagpflicht aktiv.</div> : null}
           </> : <>
-            <h2>Figur wählen</h2>
-            <div className="rule">Klicke eine Figur an. Blaue Punkte zeigen Züge, rote Ringe Schläge. Fahre über ein Schlagziel, um den Serienpfad zu sehen. Karten auf dem Tisch lassen sich ebenfalls anklicken.</div>
+            <div className="rule">Figur antippen, um ihre Züge zu sehen.</div>
           </>}
         </div>
 
-        <div className="stack" style={{ gap: 8 }}>
-          <div className="lbl">Einstellungen</div>
+        <details className="fold">
+          <summary>Einstellungen und Zeichen</summary>
           {onOptions ? <>
             <label className="opt"><input type="checkbox" checked={st.options.sideFirst} onChange={(e) => onOptions({ ...st.options, sideFirst: e.target.checked })} /> Seitlicher Schlag als erster Schlag erlaubt</label>
           </> : <div className="rule">Seitlicher Erstschlag: {st.options.sideFirst ? 'ja' : 'nein'}</div>}
           <div className="rule">Schlagpflicht gilt nur für die Offiziere. Die Mannschaft darf schlagen, muss aber nicht.</div>
           <label className="opt"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Kamera dreht zur Seite, die am Zug ist</label>
-        </div>
-        <div className="legend">
-          <span><i style={{ background: 'var(--mark)', borderRadius: '50%' }} />Zug</span>
-          <span><i style={{ border: '2px solid var(--hit)', borderRadius: '50%', boxSizing: 'border-box' }} />Schlag</span>
-          <span><i style={{ background: 'var(--brass)' }} />Serienpfad</span>
-        </div>
+          <div className="legend">
+            <span><i style={{ background: 'var(--mark)', borderRadius: '50%' }} />Zug</span>
+            <span><i style={{ border: '2px solid var(--hit)', borderRadius: '50%', boxSizing: 'border-box' }} />Schlag</span>
+            <span><i style={{ background: 'var(--brass)' }} />Serienpfad (über ein Schlagziel fahren)</span>
+          </div>
+        </details>
         {footer}
         <div className="stack" style={{ gap: 6 }}>
           <div className="lbl">Logbuch</div>
-          <div className="log">{st.log.length ? st.log.slice(0, 12).map((l, i) => <div key={i}>{l}</div>) : <div>Noch keine Züge.</div>}</div>
+          <div className="log">{st.log.length ? st.log.slice(0, 8).map((l, i) => <div key={i}>{l}</div>) : <div>Noch keine Züge.</div>}</div>
         </div>
       </aside>
     </div>

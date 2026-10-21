@@ -33,6 +33,24 @@ service cloud.firestore {
       );
     }
 
+    // Diplomacy chat of a campaign: public messages for all players of the game, private ones only for sender and
+    // addressed house. Messages cannot be changed or deleted.
+    match /games/{gameId}/chat/{msgId} {
+      function game() { return get(/databases/$(database)/documents/games/$(gameId)).data; }
+      function member() { return signedIn() && me() in game().members; }
+      allow read: if member() && (
+        resource.data.to == 'all' || resource.data.uid == me() || game().players[resource.data.to] == me()
+      );
+      allow create: if member()
+        && request.resource.data.uid == me()
+        && game().players[request.resource.data.from] == me()
+        && (request.resource.data.to == 'all' || request.resource.data.to in game().players)
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
+        && request.resource.data.keys().hasOnly(['from', 'to', 'text', 'uid', 'name', 'at']);
+      allow update, delete: if false;
+    }
+
     // Old login data from version 1 (plaintext passwords): locked completely.
     match /players/{doc=**} {
       allow read, write: if false;
