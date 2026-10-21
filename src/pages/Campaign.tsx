@@ -20,7 +20,7 @@ import CampaignMap from '../campaign/CampaignMap.tsx';
 import CampaignMap3D from '../campaign/CampaignMap3D.tsx';
 import { explain, num, type Explanation } from '../campaign/explain.ts';
 import {
-  AGENT_RANGE, BUILDINGS, ORDERS_PER_ROUND, levelOf, orderCount, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
+  AGENT_RANGE, BUILDINGS, enterMap, ORDERS_PER_ROUND, levelOf, orderCount, SPEC_NAME, OTHER, applyBattle, agentById, armyById, autoBattle, battleGame, engagedIds,
   GOAL_POINTS, finalScore, goalMet, goalText, movePreview, newCampaign, orderCost, orderProblem, pathCost, rangeOf, score, sealOrders,
   type Branch, type Campaign as CampaignState, type Order, type Tone,
 } from '../campaign/engine.ts';
@@ -56,6 +56,8 @@ export default function Campaign({ online }: { online?: OnlineSession } = {}) {
   const nav = useNavigate();
   const [localC, setC] = useState<CampaignState>(() => (online ? online.c : saved() ?? newCampaign()));
   const c = online ? online.c : localC;
+  enterMap(c); // the map of this campaign is the active one for everything below
+  const mapId = c.map?.id ?? 'klassisch';
   /** Start dialog: shown when there is no saved campaign, or for a new one. */
   const [setup, setSetup] = useState(() => !online && !saved());
   const [readyLocal, setReady] = useState(false);
@@ -474,9 +476,9 @@ export default function Campaign({ online }: { online?: OnlineSession } = {}) {
         <div ref={mapBox} className="stage">
           {view3d ? (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              <CampaignMap3D {...mapProps} house={h} projector={projector} onCamera={() => (card || popHex) && setCamTick((t) => t + 1)} />
+              <CampaignMap3D key={mapId} {...mapProps} house={h} projector={projector} onCamera={() => (card || popHex) && setCamTick((t) => t + 1)} />
             </div>
-          ) : <CampaignMap {...mapProps} svgRef={svgRef} />}
+          ) : <CampaignMap key={mapId} {...mapProps} svgRef={svgRef} onCamera={() => (card || popHex) && setCamTick((t) => t + 1)} />}
 
           <div className="row" style={{ position: 'absolute', left: showDrawer ? 352 : 12, top: 12, gap: 8, zIndex: 3 }}>
             <div className="seg" role="group" aria-label="Kartenansicht">

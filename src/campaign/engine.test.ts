@@ -255,3 +255,22 @@ test('Geheime Ziele: verdeckt gezogen, zählen am Ende mit', () => {
   const none = newCampaign({ goals: false });
   assert.equal(none.goals, undefined);
 });
+
+test('Generierte Karte: gleicher Code ergibt dieselbe Karte, Kampagne läuft darauf', async () => {
+  const { generateMap, parseCode, mapCode, fairness } = await import('./mapgen.ts');
+  const p = parseCode('man1-test7')!;
+  assert.equal(mapCode(p), 'MAN1-TEST7');
+  const a = generateMap(p), b = generateMap(p);
+  assert.deepEqual(a, b);
+  assert.equal(a.provinces.length, 21);
+  assert.ok(fairness(a).ok);
+  const c = newCampaign({ map: a, maxRounds: 4 });
+  assert.equal(c.map?.id, a.id);
+  assert.equal(c.armies.length, 4);
+  for (const h of ['R', 'K'] as const) assert.equal(a.provinces.filter((x) => x.start === h).length, 3);
+  // the classic map is back as soon as a classic campaign is used
+  const old = newCampaign({});
+  assert.equal(old.map, undefined);
+  assert.equal(cityHex('aldfurt'), '5,5');
+  assert.ok(hexDist(old.armies[0].hex, old.armies[2].hex) > 3);
+});

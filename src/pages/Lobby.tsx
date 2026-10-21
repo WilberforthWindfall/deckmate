@@ -5,7 +5,8 @@ import { useAuth } from '../auth.tsx';
 import { db } from '../firebase.ts';
 import { createCampaign, createGame, deleteGame, isCampaign, joinCampaign, joinGame, parseCampaign, watchLobby, watchMyFinished, type AnyDoc, type CampaignDoc, type GameDoc } from '../online.ts';
 import { HOUSES, type House } from '../campaign/map.ts';
-import { DEFAULT_OPTIONS, type CampaignOptions } from '../campaign/engine.ts';
+import type { CampaignOptions } from '../campaign/engine.ts';
+import StartDialog from '../campaign/StartDialog.tsx';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
 import { FeedbackButton } from '../components/Feedback.tsx';
 
@@ -16,7 +17,7 @@ export default function Lobby() {
   const [finished, setFinished] = useState<AnyDoc[]>([]);
   const [cName, setCName] = useState('');
   const [cHouse, setCHouse] = useState<House | 'any'>('any');
-  const [cOpts, setCOpts] = useState<CampaignOptions>(DEFAULT_OPTIONS);
+  const [cDialog, setCDialog] = useState(false);
   const [kind, setKind] = useState<'partie' | 'kampagne'>('partie');
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
@@ -45,13 +46,13 @@ export default function Lobby() {
       nav(`/spiel/${id}`);
     } catch (err) { setError(firestoreHint(err)); setBusy(false); }
   }
-  async function createC(e: FormEvent) {
-    e.preventDefault();
+  function createC(e: FormEvent) { e.preventDefault(); setError(''); setCDialog(true); }
+  async function createWith(o: CampaignOptions) {
     setBusy(true); setError('');
     try {
       const h: House = cHouse === 'any' ? (Math.random() < 0.5 ? 'R' : 'K') : cHouse;
-      nav(`/kampagne/${await createCampaign(user!, cName, h, cOpts)}`);
-    } catch (err) { setError(firestoreHint(err)); setBusy(false); }
+      nav(`/kampagne/${await createCampaign(user!, cName, h, o)}`);
+    } catch (err) { setError(firestoreHint(err)); setBusy(false); setCDialog(false); }
   }
   const path = (g: AnyDoc) => (isCampaign(g) ? `/kampagne/${g.id}` : `/spiel/${g.id}`);
   async function join(g: AnyDoc) {
@@ -81,6 +82,7 @@ export default function Lobby() {
 
   return (
     <div className="page">
+      {cDialog && <StartDialog online busy={busy} onStart={createWith} onCancel={() => setCDialog(false)} />}
       <div className="page-inner">
         <div className="brand">
           <div><h1>Deckmate</h1><p>Willkommen an Bord, {user.displayName ?? 'Seefahrer'}.</p></div>
@@ -145,14 +147,8 @@ export default function Lobby() {
                       <select value={cHouse} onChange={(e) => setCHouse(e.target.value as House | 'any')}>
                         <option value="any">Zufällig</option><option value="R">Ravensmoor</option><option value="K">Kerrow</option>
                       </select></label>
-                    <label className="stack" style={{ gap: 4, flex: 1, minWidth: 140 }}><span className="lbl">Runden</span>
-                      <select value={cOpts.maxRounds} onChange={(e) => setCOpts({ ...cOpts, maxRounds: Number(e.target.value) })}>
-                        <option value={6}>6 · kurz</option><option value={10}>10 · normal</option><option value={15}>15 · lang</option>
-                      </select></label>
                   </div>
-                  <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.goals} onChange={(e) => setCOpts({ ...cOpts, goals: e.target.checked })} /><span>Geheime Ziele</span></label>
-                  <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" style={{ width: 18, height: 18, flex: 'none' }} checked={cOpts.experience} onChange={(e) => setCOpts({ ...cOpts, experience: e.target.checked })} /><span>Erfahrung der Heere</span></label>
-                  <button type="submit" className="primary" disabled={busy}>Kampagne anlegen</button>
+                  <button type="submit" className="primary" disabled={busy}>Weiter: Karte und Regeln</button>
                 </form>
               )}
               <p className="rule" style={{ margin: 0 }}>Danach Einladungslink teilen oder warten, bis jemand beitritt.</p>

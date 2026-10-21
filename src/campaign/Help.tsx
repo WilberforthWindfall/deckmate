@@ -79,6 +79,15 @@ function chapters(): Chapter[] {
       }),
     },
     {
+      n: 'Karten', icon: '⌖', items: [
+        { t: 'Zufallskarte', d: 'Im Startdialog entsteht auf Wunsch eine neue Karte von Angelonia: klein (13 Provinzen), mittel (21) oder groß (32), mit einem Charakter (ausgewogen, Küstenreich, Gebirgsland, Sumpfmarsch, Flusstäler) und wenigen, normal vielen oder vielen Städten.', tags: 'seed generator größe' },
+        { t: 'Kartencode', d: 'Jede Zufallskarte hat einen Code wie MAN1-7F3KQ. Derselbe Code ergibt immer dieselbe Karte – zum Teilen mit Freunden einfach den Code weitergeben und unter „Code eingeben“ laden.', tags: 'seed teilen' },
+        { t: 'Fairness', d: 'Jede Karte wird zweifach geprüft: Messwerte (wer ist näher an neutralen Städten, wie viel Land liegt in Reichweite, wie gut ist die Hauptstadt geschützt) sortieren grobe Schieflagen aus. Danach spielt der Computer die Karte 30-mal gegen sich selbst. Ausgewogen heißt: jedes Haus gewinnt 35–65 % dieser Partien.', tags: 'ki probelauf ausgewogen balance' },
+        { t: 'Favoriten', d: 'Gute Karten lassen sich mit dem Stern speichern – angemeldet im eigenen Konto, sonst in diesem Browser. Die Karte wird vollständig gespeichert und ändert sich nie mehr.', tags: 'speichern stern' },
+        { t: 'Kartenausschnitt', d: 'In der 2D-Karte zoomt das Mausrad, Ziehen verschiebt den Ausschnitt, ⤢ zeigt wieder die ganze Karte. In 3D: Mausrad zoomt, rechte Maustaste oder Umschalt + Ziehen verschiebt.', tags: 'zoom verschieben' },
+      ],
+    },
+    {
       n: 'Gebäude', icon: '⌂', items: BUILDING_KEYS.map((b) => ({ t: BUILDINGS[b].n, d: `${BUILDINGS[b].cost} Gold. ${BUILDINGS[b].effect} Steht ein feindliches Heer auf dem Feld, ruht das Gebäude; zieht es weiter und das Feld bleibt in seiner Hand, ist das Gebäude erobert.`, tags: 'gebäude bauen umland' })),
     },
   ];

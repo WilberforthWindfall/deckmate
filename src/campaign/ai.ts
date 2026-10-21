@@ -1,6 +1,7 @@
 // Computer opponent for the campaign. It looks at what each army could reach this round and scores the options
 // (take cities and land, attack weak enemies, defend threatened cities, follow its secret goal), adds city orders,
 // buildings and research, and keeps the best ones that are allowed. Pure: same input, same orders for a fixed rng.
+import { enterMap } from './engine.ts';
 import {
   AUTO_WIN, BRANCH_KEYS, BUILDINGS, MAX_LEVEL, ORDERS_PER_ROUND, OTHER, RESEARCH_COST, SPEC_MAX, armyAt, bestNear,
   buildingFor, buildingOwnerOf, engagedIds, levelOf, orderCost, orderProblem, rangeOf, recruitSize, researchOf, specSum,
@@ -14,18 +15,23 @@ export const AI_LEVEL: Record<AiLevel, string> = { leicht: 'Computer (leicht)', 
 
 interface Cand { o: Order; score: number; unit?: string; why: string }
 
-/** Enemy strength that could reach this hex next round (rough: whole army, no terrain). */
+/** Enemy strength that could reach this hex next round (rough: whole army, no terrain). Cached per campaign state. */
+const threatCache = new WeakMap<Campaign, Partial<Record<House, { size: number; cost: Record<HexKey, number> }[]>>>();
 function threatOn(c: Campaign, house: House, hex: HexKey): number {
-  let t = 0;
-  for (const e of c.armies) {
-    if (e.house === house) continue;
-    const r = reachable(e.hex, rangeOf(e), new Set(c.armies.filter((a) => a.house === house).map((a) => a.hex)));
-    if (hex in r.cost || HEX_ADJ[hex].some((n) => n in r.cost)) t = Math.max(t, e.size);
+  let per = threatCache.get(c);
+  if (!per) { per = {}; threatCache.set(c, per); }
+  let list = per[house];
+  if (!list) {
+    const own = new Set(c.armies.filter((a) => a.house === house).map((a) => a.hex));
+    list = per[house] = c.armies.filter((e) => e.house !== house).map((e) => ({ size: e.size, cost: reachable(e.hex, rangeOf(e), own).cost }));
   }
+  let t = 0;
+  for (const e of list) if (hex in e.cost || HEX_ADJ[hex].some((n) => n in e.cost)) t = Math.max(t, e.size);
   return t;
 }
 
 export function aiOrders(c: Campaign, house: House, level: AiLevel, rng: Rng): Order[] {
+  enterMap(c);
   const enemy = OTHER[house];
   const normal = level === 'normal';
   const noise = () => (normal ? rng() * 2 : rng() * 8);

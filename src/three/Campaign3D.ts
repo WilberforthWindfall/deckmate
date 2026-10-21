@@ -143,6 +143,8 @@ export class Campaign3D {
   private ro: ResizeObserver;
   private moodIndex = -1;
   private t0 = performance.now();
+  /** Size of this map relative to the classic one (camera range, sea, shadows and fog scale with it). */
+  private k = Math.max(1, MAP_W / 908, MAP_H / 818);
 
   constructor(private host: HTMLElement, private handlers: MapHandlers) {
     const mobile = matchMedia('(max-width: 860px)').matches;
@@ -158,14 +160,14 @@ export class Campaign3D {
     this.sun = new THREE.DirectionalLight(0xfff1d6, 1.2 * Math.PI);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
-    Object.assign(this.sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 60 });
+    Object.assign(this.sun.shadow.camera, { left: -14 * this.k, right: 14 * this.k, top: 14 * this.k, bottom: -14 * this.k, near: 1, far: 60 * this.k });
     this.sun.shadow.bias = -0.0008;
     s.add(this.sun, this.sun.target);
 
     const loader = new THREE.TextureLoader();
     const tex = (n: string) => { const t = loader.load(`/tiles/${n}.jpg`); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
-    const seaTex = tex('meer'); seaTex.wrapS = seaTex.wrapT = THREE.RepeatWrapping; seaTex.repeat.set(9, 9);
-    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ map: seaTex, color: 0x9fc4cc, roughness: 0.35, metalness: 0.1 }));
+    const seaTex = tex('meer'); seaTex.wrapS = seaTex.wrapT = THREE.RepeatWrapping; seaTex.repeat.set(9 * this.k, 9 * this.k);
+    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(90 * this.k, 90 * this.k), new THREE.MeshStandardMaterial({ map: seaTex, color: 0x9fc4cc, roughness: 0.35, metalness: 0.1 }));
     this.sea.rotation.x = -Math.PI / 2; this.sea.position.y = 0.04; this.sea.receiveShadow = true; s.add(this.sea);
 
     const top: Record<string, THREE.MeshStandardMaterial> = {};
@@ -294,17 +296,17 @@ export class Campaign3D {
     this.moodIndex = i;
     const m = MOODS[i];
     this.sun.color.setHex(m.sun); this.sun.intensity = m.sunI * Math.PI;
-    this.sun.position.set(...m.sunPos); this.sun.target.position.set(0, 0, 0);
+    this.sun.position.set(m.sunPos[0] * this.k, m.sunPos[1] * this.k, m.sunPos[2] * this.k); this.sun.target.position.set(0, 0, 0);
     this.hemi.intensity = m.hemi * Math.PI;
     (this.scene.background as THREE.Color).setHex(m.sky);
-    const fog = this.scene.fog as THREE.Fog; fog.color.setHex(m.sky); fog.near = m.fog[0]; fog.far = m.fog[1];
+    const fog = this.scene.fog as THREE.Fog; fog.color.setHex(m.sky); fog.near = m.fog[0] * this.k; fog.far = m.fog[1] * this.k;
   }
   get mood() { return MOODS[Math.max(0, this.moodIndex)]; }
 
   pose(p: CameraPose, house?: House) {
     const o = this.orbit;
-    if (p === 'uebersicht') { o.tTheta = 0; o.tPhi = 0.16; o.tRad = 31; o.tLook.set(0, 0, 0.3); }
-    if (p === 'feldherr') { o.tTheta = house === 'K' ? 0.75 : -0.75; o.tPhi = 0.92; o.tRad = 28; o.tLook.set(0, 0, 0.8); }
+    if (p === 'uebersicht') { o.tTheta = 0; o.tPhi = 0.16; o.tRad = 31 * this.k; o.tLook.set(0, 0, 0.3); }
+    if (p === 'feldherr') { o.tTheta = house === 'K' ? 0.75 : -0.75; o.tPhi = 0.92; o.tRad = 28 * this.k; o.tLook.set(0, 0, 0.8); }
     if (p === 'nah') {
       const cap = PROVINCES.find((x) => x.capital === (house ?? 'R'))!;
       const [x, z] = toW(...provCenter(cap.id));
@@ -603,7 +605,7 @@ export class Campaign3D {
           // pan along the ground
           const k = o.rad * 0.0016, c = Math.cos(o.theta), s = Math.sin(o.theta);
           o.tLook.x -= (dx * c + dy * s) * k; o.tLook.z -= (-dx * s + dy * c) * k;
-          o.tLook.x = Math.max(-12, Math.min(12, o.tLook.x)); o.tLook.z = Math.max(-11, Math.min(11, o.tLook.z));
+          o.tLook.x = Math.max(-12 * this.k, Math.min(12 * this.k, o.tLook.x)); o.tLook.z = Math.max(-11 * this.k, Math.min(11 * this.k, o.tLook.z));
         } else {
           o.tTheta -= dx * 0.006; o.tPhi = Math.max(0.12, Math.min(1.25, o.tPhi - dy * 0.005));
         }
@@ -623,7 +625,7 @@ export class Campaign3D {
     else if (h?.agent) this.handlers.onAgent(h.agent);
     else if (h?.hex) this.handlers.onHex(h.hex);
   };
-  private onWheel = (e: WheelEvent) => { e.preventDefault(); this.orbit.tRad = Math.max(7, Math.min(36, this.orbit.tRad + e.deltaY * 0.012)); };
+  private onWheel = (e: WheelEvent) => { e.preventDefault(); this.orbit.tRad = Math.max(7, Math.min(36 * this.k, this.orbit.tRad + e.deltaY * 0.012 * this.k)); };
 
   private resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
