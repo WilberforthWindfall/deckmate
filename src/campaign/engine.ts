@@ -5,8 +5,8 @@
 import { MAX_STONES, newBattle } from '../game/battle.ts';
 import { CARDS, type Army, type CardKey, type GameState, type Rng } from '../game/rules.ts';
 import {
-  CITY_HEX, HEX, HEX_ADJ, HOUSES, LAND, PROV, PROVINCES, cityHex, hexDist, hexLand, hexName, stepCost, walkPath,
-  type HexKey, type House,
+  CITY_HEX, CLASSIC, HEX, HEX_ADJ, HOUSES, LAND, PROV, PROVINCES, activateMap, cityHex, hexDist, hexLand, hexName, stepCost, walkPath,
+  type HexKey, type House, type MapDef,
 } from './map.ts';
 
 export type Spec = Army['spec'];
@@ -96,6 +96,8 @@ export interface CampaignOptions {
   maxRounds: number; goals: boolean; experience: boolean;
   /** One device against the computer: the house it plays and how well. */
   ai?: { house: House; level: 'leicht' | 'normal' } | null;
+  /** Map to play on (only read by newCampaign; it is stored in Campaign.map). Default: the classic map. */
+  map?: MapDef;
 }
 export const DEFAULT_OPTIONS: CampaignOptions = { maxRounds: 10, goals: true, experience: true, ai: null };
 /** A specialist travelling without an army. */
@@ -196,7 +198,12 @@ export interface Campaign {
   opts?: CampaignOptions;
   /** Secret goal of each house, only shown to its owner until the end. */
   goals?: Record<House, Goal>;
+  /** The map of this campaign; missing in older saves (then the classic map). */
+  map?: MapDef;
 }
+
+/** Make the campaign's map the active one – every entry point that reads the map calls this first. */
+export const enterMap = (c: Pick<Campaign, 'map'>) => { activateMap(c.map ?? CLASSIC); };
 
 export const OTHER: Record<House, House> = { R: 'K', K: 'R' };
 const noSpec = (): Spec => ({ CAP: 0, KAP: 0, KAN: 0, MAR: 0 });
@@ -303,6 +310,7 @@ function sideOf(c: Campaign, a: CArmy, from: HexKey, hex: HexKey, supports: CArm
 }
 
 export function income(c: Campaign, h: House) {
+  enterMap(c);
   const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
   const markets = Object.keys(c.buildings).filter((k) => c.buildings[k] === 'markt' && buildingOwnerOf(c, k) === h && buildingActive(c, k)).reduce((n, k) => n + levelOf(c, k), 0);
   const collected = c.agents.filter((a) => a.house === h).reduce((n, a) => n + (agentBonus(c, a)?.gold ?? 0), 0);
@@ -311,6 +319,7 @@ export function income(c: Campaign, h: House) {
 }
 export const incomeOf = (c: Campaign, h: House) => income(c, h).total;
 export function score(c: Campaign, h: House) {
+  enterMap(c);
   const provs = PROVINCES.filter((p) => c.owner[p.id] === h);
   return provs.length + provs.filter((p) => p.city).length * 2;
 }
@@ -357,6 +366,7 @@ function drawGoals(rng: Rng, experience: boolean): Record<House, Goal> {
 
 /** Province owners from the hexes: city provinces by their city hex, the others by the majority of fields. */
 export function deriveOwners(c: Campaign) {
+  enterMap(c);
   for (const p of PROVINCES) {
     if (p.city) { c.owner[p.id] = c.hexOwner[cityHex(p.id)] ?? null; continue; }
     const n: Record<House, number> = { R: 0, K: 0 };
@@ -370,21 +380,24 @@ export function deriveOwners(c: Campaign) {
 // ---------- setup ----------
 
 export function newCampaign(options: Partial<CampaignOptions> = {}, rng: Rng = Math.random): Campaign {
-  const opts: CampaignOptions = { ...DEFAULT_OPTIONS, ...options };
+  const { map: def = CLASSIC, ...rest } = options;
+  const opts: CampaignOptions = { ...DEFAULT_OPTIONS, ...rest };
+  activateMap(def);
   const hexOwner: Record<HexKey, House | null> = Object.fromEntries(Object.keys(HEX).map((k) => [k, PROV[HEX[k].prov!].start ?? null]));
-  const at = (prov: string) => cityHex(prov);
+  const capital = (h: House) => PROVINCES.find((p) => p.capital === h)!.id;
   const armies: CArmy[] = [
-    { id: 'a1', house: 'R', hex: at('aldfurt'), size: 10, spec: { CAP: 1, KAP: 1, KAN: 0, MAR: 0 } },
-    { id: 'a2', house: 'R', hex: at('suedhafen'), size: 6, spec: noSpec() },
-    { id: 'a3', house: 'K', hex: at('kapostra'), size: 10, spec: { CAP: 1, KAP: 1, KAN: 0, MAR: 0 } },
-    { id: 'a4', house: 'K', hex: at('ostkueste'), size: 6, spec: noSpec() },
+    { id: 'a1', house: 'R', hex: cityHex(capital('R')), size: 10, spec: { CAP: 1, KAP: 1, KAN: 0, MAR: 0 } },
+    { id: 'a2', house: 'R', hex: cityHex(def.second.R), size: 6, spec: noSpec() },
+    { id: 'a3', house: 'K', hex: cityHex(capital('K')), size: 10, spec: { CAP: 1, KAP: 1, KAN: 0, MAR: 0 } },
+    { id: 'a4', house: 'K', hex: cityHex(def.second.K), size: 6, spec: noSpec() },
   ];
   // each capital starts with a chapel next to it
   const buildings: Record<HexKey, BuildingKey> = {};
   const buildingOwner: Record<HexKey, House> = {};
-  for (const cap of ['aldfurt', 'kapostra']) {
-    const k = HEX_ADJ[cityHex(cap)].find((n) => HEX[n].prov === cap && !CITY_HEX[n]);
-    if (k) { buildings[k] = 'kapelle'; buildingOwner[k] = PROV[cap].capital!; }
+  for (const h of ['R', 'K'] as House[]) {
+    const cap = capital(h);
+    const k = HEX_ADJ[cityHex(cap)].find((n) => HEX[n].prov === cap && !CITY_HEX[n]) ?? HEX_ADJ[cityHex(cap)].find((n) => !CITY_HEX[n] && PROV[HEX[n].prov!].start === h);
+    if (k) { buildings[k] = 'kapelle'; buildingOwner[k] = h; }
   }
   const c: Campaign = {
     v: 2, round: 1, maxRounds: opts.maxRounds, phase: 'orders', current: 'R', hexOwner, owner: {}, buildings, buildingOwner, levels: {}, research: { R: {}, K: {} },
@@ -392,6 +405,7 @@ export function newCampaign(options: Partial<CampaignOptions> = {}, rng: Rng = M
     orders: { R: [], K: [] }, sealed: { R: false, K: false }, battles: [],
     report: [opts.ai ? `Runde 1 beginnt. Du führst ${HOUSES[OTHER[opts.ai.house]].n}, der Computer ${HOUSES[opts.ai.house].n}.` : 'Runde 1 beginnt. Ravensmoor gibt zuerst seine Befehle, Kerrow schaut weg.'], winner: null, winReason: null, nextId: 5,
     opts, goals: opts.goals ? drawGoals(rng, opts.experience) : undefined,
+    ...(def.id !== CLASSIC.id ? { map: def } : {}),
   };
   deriveOwners(c);
   return c;
@@ -420,6 +434,7 @@ function pathProblem(c: Campaign, house: House, from: HexKey, path: HexKey[], bu
 
 /** Why an order is not allowed (empty string if it is), given the house's other orders this round. */
 export function orderProblem(c: Campaign, house: House, o: Order, others: Order[]): string {
+  enterMap(c);
   if (countsAsOrder(o) && orderCount(others) >= ORDERS_PER_ROUND) return `Pro Runde sind ${ORDERS_PER_ROUND} Befehle erlaubt.`;
   const spent = others.reduce((g, x) => g + orderCost(c, house, x), 0);
   if (o.kind === 'research') {
@@ -510,6 +525,7 @@ export type Tone = 'ok' | 'risk' | 'bad' | 'plain';
  * house's own planned supports. Hidden enemy supports and moves are not known and not counted.
  */
 export function movePreview(c: Campaign, house: House, armyId: string, to: HexKey, draft: Order[]): { text: string; tone: Tone } {
+  enterMap(c);
   const a = armyById(c, armyId);
   if (!a) return { text: '', tone: 'plain' };
   const holder = armyAt(c, to);
@@ -530,6 +546,7 @@ export function movePreview(c: Campaign, house: House, armyId: string, to: HexKe
 
 /** Seal one house's orders. When both are sealed, everything resolves. */
 export function sealOrders(prev: Campaign, house: House, orders: Order[], rng: Rng): Campaign {
+  enterMap(prev);
   if (prev.phase !== 'orders') throw new Error('Gerade werden keine Befehle gegeben.');
   if (prev.sealed[house]) throw new Error('Die Befehle dieses Hauses sind schon versiegelt.');
   const ok: Order[] = [];
@@ -604,6 +621,7 @@ function nearestCity(c: Campaign, from: HexKey, house: House): HexKey | null {
 }
 
 function resolve(c: Campaign, rng: Rng): Campaign {
+  enterMap(c);
   const reveal: NonNullable<Campaign['reveal']> = {
     round: c.round, armies: clone(c.armies), agents: clone(c.agents), traders: clone(c.traders),
     hexOwner: clone(c.hexOwner), owner: clone(c.owner), gold: { ...c.gold }, orders: clone(c.orders), walk: {},
@@ -866,6 +884,7 @@ function resolve(c: Campaign, rng: Rng): Campaign {
 export interface BattleOutcome { attackerWon: boolean; attacker: { size: number; spec: Spec }; defender: { size: number }; retreat: boolean; how: string }
 
 export function applyBattle(prev: Campaign, id: string, out: BattleOutcome): Campaign {
+  enterMap(prev);
   const c = clone(prev);
   const b = c.battles.find((x) => x.id === id);
   if (!b) throw new Error('Diese Schlacht gibt es nicht.');
@@ -904,6 +923,7 @@ export function applyBattle(prev: Campaign, id: string, out: BattleOutcome): Cam
 
 /** Quick resolution without the board: chance follows the strength ratio. */
 export function autoBattle(c: Campaign, id: string, rng: Rng): Campaign {
+  enterMap(c);
   const b = c.battles.find((x) => x.id === id)!;
   const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
   const won = rng() < b.attStrength / (b.attStrength + b.defStrength);
@@ -915,6 +935,7 @@ export function autoBattle(c: Campaign, id: string, rng: Rng): Campaign {
 
 /** Deckmate game for a pending battle; each supporting army gives its side one extra card. */
 export function battleGame(c: Campaign, id: string, rng: Rng): GameState {
+  enterMap(c);
   const b = c.battles.find((x) => x.id === id)!;
   const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
   const st = newBattle({
@@ -934,6 +955,7 @@ export function battleGame(c: Campaign, id: string, rng: Rng): GameState {
 // ---------- end of round ----------
 
 function endRound(c: Campaign): Campaign {
+  enterMap(c);
   const log: string[] = [];
   for (const a of c.armies) {
     if (hexLand(a.hex) === 'S') { a.size--; log.push(`Fieber bei ${hexName(a.hex)}: ${hn(a.house)} verliert 1 Figur.`); }

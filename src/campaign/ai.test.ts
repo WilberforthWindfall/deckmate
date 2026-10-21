@@ -41,3 +41,12 @@ test('KI schlägt einen untätigen Gegner', () => {
   }
   assert.ok(wins >= 3, `nur ${wins} von 4 gewonnen`);
 });
+
+test('KI spielt auch auf generierten Karten gültig bis zum Ende', async () => {
+  const { generateMap } = await import('./mapgen.ts');
+  const { trialGame } = await import('./trial.ts');
+  for (const code of [{ size: 'S', char: 'G', cities: 'V', seed: 'KI1' }, { size: 'L', char: 'K', cities: 'W', seed: 'KI2' }] as const) {
+    const w = trialGame(generateMap(code), 'probe');
+    assert.ok(w === null || w === 'R' || w === 'K');
+  }
+});

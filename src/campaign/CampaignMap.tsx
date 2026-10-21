@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent as RMouseEvent, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type RefObject } from 'react';
 import {
   CITY_HEX, HEX, HEXES, HEX_R, HOUSES, MAP_H, MAP_W, PROV, PROVINCES, center, hexAt, hexCenter, hexPoints, hexSides, hk, inGrid, provCenter,
   type HexKey, type House,
@@ -34,6 +34,8 @@ export interface MapProps {
   /** Buildings being built this round (shown as construction sites). */
   construction?: { hex: HexKey; b: BuildingKey; house: House; up?: number }[];
   svgRef?: RefObject<SVGSVGElement>;
+  /** Called after zooming or panning, so overlays anchored to fields can follow. */
+  onCamera?: () => void;
 }
 
 const TONE: Record<Tone, string> = { ok: '#2F6E40', risk: '#8C5A12', bad: '#7E2621', plain: '#2A3F55' };
@@ -50,7 +52,8 @@ const seg = (a: [number, number], b: [number, number], x: number, y: number, k: 
 const line = (from: HexKey, path: HexKey[]) => [from, ...path].map((k, i) => { const [x, y] = hexCenter(k); return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`; }).join('');
 
 export default function CampaignMap(p: MapProps) {
-  const { c, selectedHex, selectedUnit, reach, plan, orders, onHex, onArmy, onAgent, labels, focus, posOverride, stepMs = 900, svgRef, moving, construction } = p;
+  const { c, selectedHex, selectedUnit, reach, plan, orders, onHex, onArmy, onAgent, labels, focus, posOverride, stepMs = 900, svgRef, moving, construction, onCamera } = p;
+  const view = useZoom(svgRef, onCamera);
   const marks: Record<string, Mark> = {};
   for (const o of orders) if (o.kind === 'move' || o.kind === 'support' || o.kind === 'forage') marks[o.army] = o.kind;
   const geo = useMemo(() => {
@@ -91,7 +94,9 @@ export default function CampaignMap(p: MapProps) {
   const unitPos = (id: string, hex: HexKey) => posOverride?.[id] ?? hexCenter(hex);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${MAP_W.toFixed(0)} ${MAP_H.toFixed(0)}`} role="img" aria-label="Kampagnenkarte von Eridanos" style={{ width: '100%', height: '100%', display: 'block' }}>
+    <>
+    <svg ref={view.ref} viewBox={view.box} role="img" aria-label="Kampagnenkarte von Angelonia" style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', cursor: view.dragging ? 'grabbing' : undefined }}
+      onPointerDown={view.down} onPointerMove={view.move} onPointerUp={view.up} onPointerCancel={view.up} onClickCapture={view.click}>
       <defs>
         {Object.values(TILE).concat(['stadt']).map((t) => (
           <pattern key={t} id={`t-${t}`} patternContentUnits="objectBoundingBox" width="1" height="1">
@@ -309,6 +314,12 @@ export default function CampaignMap(p: MapProps) {
         );
       })}
     </svg>
+    <div className="map-zoom" role="group" aria-label="Kartenausschnitt">
+      <button type="button" className="icon-btn" aria-label="Näher heran" title="Näher heran (Mausrad)" onClick={() => view.zoomBy(0.75)}>+</button>
+      <button type="button" className="icon-btn" aria-label="Weiter weg" title="Weiter weg (Mausrad)" onClick={() => view.zoomBy(1 / 0.75)}>−</button>
+      <button type="button" className="icon-btn" aria-label="Ganze Karte" title="Ganze Karte" onClick={view.fit} disabled={view.full}>⤢</button>
+    </div>
+    </>
   );
 }
 
@@ -377,4 +388,61 @@ function Token({ x, y, house, size, spec, selected, mark, id, ms, moving, rank =
       {spec > 0 && <g transform="translate(20,-14)"><circle r={8} fill="#E2C27F" stroke="#1E1A15" strokeWidth={1} /><text y={4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1E1A15">{spec}</text></g>}
     </g>
   );
+}
+
+/**
+ * Zoom with the mouse wheel or the buttons, pan by dragging. Works on the SVG viewBox, so clicks, tokens and the
+ * screen positions of overlays (getScreenCTM) stay right. A drag never counts as a click.
+ */
+function useZoom(outer: RefObject<SVGSVGElement> | undefined, onCamera?: () => void) {
+  const own = useRef<SVGSVGElement>(null);
+  const ref = (outer ?? own) as RefObject<SVGSVGElement>;
+  const [vb, setVb] = useState<[number, number, number, number]>([0, 0, MAP_W, MAP_H]);
+  const drag = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
+  const swallow = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const cb = useRef(onCamera); cb.current = onCamera;
+  const clamp = (b: [number, number, number, number]): [number, number, number, number] => {
+    const w = Math.min(MAP_W, Math.max(Math.min(MAP_W, 480), b[2])), h = w * (MAP_H / MAP_W);
+    return [Math.max(0, Math.min(MAP_W - w, b[0])), Math.max(0, Math.min(MAP_H - h, b[1])), w, h];
+  };
+  useEffect(() => { requestAnimationFrame(() => cb.current?.()); }, [vb]);
+  const zoomAt = (f: number, sx?: number, sy?: number) => setVb((b) => {
+    const cx = sx ?? b[0] + b[2] / 2, cy = sy ?? b[1] + b[3] / 2;
+    return clamp([cx - (cx - b[0]) * f, cy - (cy - b[1]) * f, b[2] * f, b[3] * f]);
+  });
+  const toSvg = (e: { clientX: number; clientY: number }) => {
+    const m = ref.current?.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+    return [p.x, p.y] as const;
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => { e.preventDefault(); const p = toSvg(e); zoomAt(Math.exp(e.deltaY * 0.0015), p?.[0], p?.[1]); };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return {
+    ref, dragging,
+    box: vb.map((v) => v.toFixed(1)).join(' '),
+    full: vb[2] >= MAP_W - 0.5,
+    zoomBy: (f: number) => zoomAt(f),
+    fit: () => setVb([0, 0, MAP_W, MAP_H]),
+    down: (e: RPointerEvent) => { swallow.current = false; if (e.button === 0) drag.current = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId }; },
+    move: (e: RPointerEvent) => {
+      const d = drag.current;
+      if (!d || vb[2] >= MAP_W - 0.5) return;
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.moved && Math.abs(dx) + Math.abs(dy) < 6) return;
+      if (!d.moved) { d.moved = true; setDragging(true); ref.current?.setPointerCapture(d.id); }
+      const m = ref.current?.getScreenCTM();
+      const k = m ? 1 / m.a : 1;
+      d.x = e.clientX; d.y = e.clientY;
+      setVb((b) => clamp([b[0] - dx * k, b[1] - dy * k, b[2], b[3]]));
+    },
+    up: () => { if (drag.current?.moved) swallow.current = true; drag.current = null; setDragging(false); },
+    click: (e: RMouseEvent) => { if (swallow.current) { e.stopPropagation(); e.preventDefault(); swallow.current = false; } },
+  };
 }

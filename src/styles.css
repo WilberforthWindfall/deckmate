@@ -175,3 +175,13 @@ details.fold[open] { gap: 10px; }
 .lobby-link:last-child { border-bottom: 0; }
 .lobby-link:hover { color: var(--brass); }
 .lobby-link span { color: var(--muted); font-size: 18px; }
+
+/* zoom buttons of the 2D campaign map */
+.map-zoom { position: absolute; right: 12px; bottom: 84px; z-index: 3; display: flex; flex-direction: column; gap: 6px; }
+.map-zoom .icon-btn { width: 36px; height: 36px; font-size: 18px; background: color-mix(in srgb, var(--hull) 92%, transparent); }
+
+/* start dialog of a campaign: map on the left, rules on the right */
+.start-dialog { max-width: 1060px; width: min(1060px, 100%); text-align: left; gap: 14px; margin: 24px auto; }
+.start-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr); gap: 22px; align-items: start; }
+.start-grid > section:last-child { position: sticky; top: 0; }
+@media (max-width: 900px) { .start-grid { grid-template-columns: 1fr; } .start-grid > section:last-child { position: static; } }

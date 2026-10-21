@@ -5,6 +5,8 @@ import { commitCampaign, joinCampaign, parseCampaign, startCampaignBattle, watch
 import { HOUSES, type House } from '../campaign/map.ts';
 import type { Campaign as CampaignState } from '../campaign/engine.ts';
 import Campaign, { type OnlineSession } from './Campaign.tsx';
+import MapPreview from '../campaign/MapPreview.tsx';
+import { CLASSIC } from '../campaign/map.ts';
 import { firestoreHint } from './Lobby.tsx';
 
 // Online campaign for two players: each plays one house on their own device. Orders are given at the same time;
@@ -36,7 +38,9 @@ export default function OnlineCampaign() {
     return (
       <div className="page"><div className="page-inner"><div className="card stack login">
         <h2>{g.name}</h2>
-        <p className="rule" style={{ margin: 0 }}>Kampagne um Eridanos · {opts}</p>
+        <p className="rule" style={{ margin: 0 }}>Kampagne um Angelonia · {opts}</p>
+        <MapPreview def={c.map ?? CLASSIC} height={220} />
+        <p className="rule" style={{ margin: 0, fontSize: 12.5 }}>{(c.map ?? CLASSIC).name} · {(c.map ?? CLASSIC).provinces.length} Provinzen{c.map?.fairness?.trial ? ` · KI-Probelauf ${c.map.fairness.trial.R} : ${c.map.fairness.trial.K}` : ''}</p>
         {free ? <>
           <p style={{ margin: 0 }}>{g.names[free === 'R' ? 'K' : 'R']} lädt dich ein. Du führst das Haus <b style={{ color: HOUSES[free].color }}>{HOUSES[free].n}</b>.</p>
           <div className="row">
