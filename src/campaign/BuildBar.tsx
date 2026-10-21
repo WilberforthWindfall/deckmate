@@ -1,6 +1,6 @@
 import {
   BRANCHES, BRANCH_KEYS, BUILDINGS, BUILDING_KEYS, MAX_LEVEL, ORDERS_PER_ROUND, RESEARCH_COST, ROMAN, buildingOwnerOf, levelEffect, levelOf,
-  orderCount, orderProblem, researchOf, upgradeCost,
+  orderCost, orderCount, orderProblem, researchOf, upgradeCost,
   type Branch, type BuildingKey, type Campaign, type Order,
 } from './engine.ts';
 import { CITY_HEX, hexName, type HexKey, type House } from './map.ts';
@@ -22,9 +22,11 @@ const toneOf = (why: string): Tone => (!why ? 'good' : /Gold/.test(why) ? 'warn'
 
 interface Card { key: string; title: string; sub: string; effect: string; state: string; tone: Tone; onClick?: () => void; planned?: number }
 
-export default function BuildBar({ c, house, draft, add, remove, site, tab, setTab, onPick, onClearSite }: {
+export default function BuildBar({ c, house, draft, add, remove, site, tab, setTab, onPick, onClearSite, shift = 0 }: {
   c: Campaign; house: House; draft: Order[]; add: (o: Order) => void; remove: (i: number) => void;
   site: HexKey | null; tab: Branch | null; setTab: (t: Branch | null) => void; onPick: (p: BuildPick) => void; onClearSite: () => void;
+  /** Px to move right (an open drawer covers the left side). */
+  shift?: number;
 }) {
   const why = (o: Order) => orderProblem(c, house, o, draft);
   const lands = Object.keys(c.hexOwner);
@@ -53,7 +55,7 @@ export default function BuildBar({ c, house, draft, add, remove, site, tab, setT
       }
       const sites = lands.filter((k) => !why({ kind: 'build', hex: k, b }));
       const w = sites.length ? '' : full ? `Alle ${ORDERS_PER_ROUND} Befehle vergeben.` : c.gold[house] < BUILDINGS[b].cost ? `${BUILDINGS[b].cost - c.gold[house]} Gold fehlen` : b === 'mauer' ? 'Keine eigene Stadt ohne Mauer.' : 'Kein freies eigenes Feld im Umland.';
-      out.push({ ...base, state: w || `${sites.length} ${sites.length === 1 ? 'Platz' : 'Plätze'} frei`, tone: toneOf(w), onClick: w ? undefined : () => onPick({ kind: 'build', b }) });
+      out.push({ ...base, state: w || 'Feld wählen', tone: toneOf(w), onClick: w ? undefined : () => onPick({ kind: 'build', b }) });
     }
     // upgrades of buildings the house owns
     for (const b of BUILDING_KEYS.filter((k) => BUILDINGS[k].branch === br)) {
@@ -80,53 +82,63 @@ export default function BuildBar({ c, house, draft, add, remove, site, tab, setT
   };
 
   const avail = (br: Branch) => cardsFor(br).filter((x) => x.onClick && x.planned === undefined).length;
-  const researchPlanned = draft.find((o) => o.kind === 'research');
   const cards = tab ? cardsFor(tab) : [];
+  const gold = c.gold[house] - draft.reduce((g, o) => g + orderCost(c, house, o), 0);
+  const free = ORDERS_PER_ROUND - orderCount(draft);
+  const GLYPH: Record<Branch, string> = { wirtschaft: '⚖', militaer: '⚔', glaube: '✝', verteidigung: '▲' };
+  const shell = {
+    position: 'absolute' as const, left: `calc(50% + ${shift / 2}px)`, bottom: 16, transform: 'translateX(-50%)', zIndex: 4,
+    background: 'color-mix(in srgb, var(--hull) 96%, transparent)', borderRadius: 14,
+    boxShadow: 'inset 0 0 0 1px var(--rope), 0 12px 32px rgba(0,0,0,.4)',
+  };
 
-  return (
-    <div role="region" aria-label="Bauen und Forschen" style={{
-      position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 4, maxWidth: 900, margin: '0 auto',
-      background: 'color-mix(in srgb, var(--hull) 94%, transparent)', border: '1px solid var(--brass)', borderRadius: 12,
-      boxShadow: '0 10px 30px rgba(0,0,0,.4)', padding: '8px 10px',
-    }}>
-      <div className="row" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="lbl" style={{ marginRight: 6 }}>Bauen</span>
+  if (!tab) {
+    // collapsed: a small dock with the four areas
+    return (
+      <nav aria-label="Bauen und Forschen" className="row" style={{ ...shell, gap: 4, padding: 6, flexWrap: 'nowrap' }}>
         {BRANCH_KEYS.map((br) => {
-          const n = avail(br), l = researchOf(c, house, br);
+          const n = avail(br);
           return (
-            <button key={br} type="button" role="tab" aria-selected={tab === br} className={tab === br ? 'on' : ''} onClick={() => setTab(tab === br ? null : br)}
-              style={{ padding: '5px 10px', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button key={br} type="button" onClick={() => setTab(br)} style={{ height: 48, padding: '0 12px', border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+              <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--hull-2)', color: 'var(--brass)', display: 'grid', placeItems: 'center' }}>{GLYPH[br]}</span>
               {BRANCHES[br].n}
-              {l > 0 && <span className="rule" style={{ fontSize: 11 }}>{ROMAN[l]}</span>}
-              {n > 0 && <span style={{ fontSize: 11, minWidth: 16, padding: '0 5px', borderRadius: 999, background: 'var(--brass)', color: '#1E1A15', fontWeight: 700 }}>{n}</span>}
+              {n > 0 && <span aria-label={`${n} möglich`} style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 9, background: 'var(--brass)', color: '#1E1A15', fontSize: 11, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{n}</span>}
             </button>
           );
         })}
-        <span style={{ flex: 1 }} />
-        {site && (
-          <span className="row" style={{ gap: 4, fontSize: 12 }}>
-            <span className="rule">{CITY_HEX[site] ? 'Stadtfeld' : 'Feld'} {hexName(site)}</span>
-            <button type="button" className="ghost" style={{ padding: '2px 6px' }} onClick={onClearSite} aria-label="Feldauswahl aufheben">×</button>
-          </span>
-        )}
-        <span className="rule" style={{ fontSize: 12 }}>Befehle {orderCount(draft)}/{ORDERS_PER_ROUND} · Forschung {researchPlanned ? 'geplant' : 'frei'}</span>
-        {tab && <button type="button" className="ghost" style={{ padding: '2px 8px' }} onClick={() => setTab(null)} aria-label="Leiste einklappen">▾</button>}
-      </div>
-      {tab && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8, marginTop: 8 }}>
-          {cards.map((x) => (
-            <button key={x.key} type="button" onClick={x.onClick} disabled={!x.onClick} title={x.effect}
-              className={x.onClick ? '' : 'muted'}
-              style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 3, padding: '8px 10px', minWidth: 0, cursor: x.onClick ? 'pointer' : 'default', opacity: 1,
-                border: x.key === 'r' ? '1px dashed var(--brass)' : undefined }}>
-              <b style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.title}</b>
-              <span className="rule" style={{ fontSize: 11.5 }}>{x.sub}</span>
-              <span style={{ fontSize: 12, lineHeight: 1.3, color: 'var(--parchment)', opacity: 0.85 }}>{x.effect}</span>
-              <span style={{ alignSelf: 'flex-start', fontSize: 11, padding: '1px 7px', borderRadius: 999, background: TONE[x.tone].bg, color: TONE[x.tone].fg }}>{x.state}</span>
-            </button>
-          ))}
+      </nav>
+    );
+  }
+
+  return (
+    <section aria-label="Bauen und Forschen" style={{ ...shell, width: 'min(780px, calc(100% - 32px))', padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="row" style={{ gap: 12, flexWrap: 'nowrap' }}>
+        <div className="stack" style={{ gap: 0, flex: 1, minWidth: 0 }}>
+          <b style={{ fontFamily: 'var(--display)', fontSize: 17 }}>{site ? `Bauen bei ${hexName(site)}` : 'Bauen und Forschen'}</b>
+          <span className="cmp-meta">{site ? <>{CITY_HEX[site] ? 'Stadtfeld' : 'Eigenes Feld'} · nur, was hier geht <button type="button" className="ghost" style={{ padding: '0 6px', fontSize: 12 }} onClick={onClearSite}>alle Felder</button></> : 'Karte wählen, dann ein leuchtendes Feld antippen.'}</span>
         </div>
-      )}
-    </div>
+        <span className="cmp-meta" style={{ whiteSpace: 'nowrap' }}>{gold} Gold · {free === 1 ? '1 Befehl' : `${free} Befehle`} frei</span>
+        <button type="button" className="icon-btn" aria-label="Bauen schließen" onClick={() => setTab(null)}>×</button>
+      </div>
+      <div className="seg" role="tablist" aria-label="Bereich" style={{ alignSelf: 'flex-start' }}>
+        {BRANCH_KEYS.map((br) => (
+          <button key={br} type="button" role="tab" aria-selected={tab === br} onClick={() => setTab(br)}>
+            {BRANCHES[br].n}{researchOf(c, house, br) > 0 ? ` ${ROMAN[researchOf(c, house, br)]}` : ''}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
+        {cards.map((x) => (
+          <button key={x.key} type="button" onClick={x.onClick} aria-disabled={!x.onClick} title={x.effect}
+            style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 5, padding: 12, minWidth: 0, borderRadius: 10, border: 0,
+              background: 'var(--hull-2)', boxShadow: `inset 0 0 0 1px ${x.key === 'r' ? 'var(--brass)' : 'var(--rope)'}`, cursor: x.onClick ? 'pointer' : 'default', opacity: x.onClick || x.planned !== undefined ? 1 : 0.78 }}>
+            <b style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.title}</b>
+            <span className="cmp-meta" style={{ fontSize: 12.5 }}>{x.sub}</span>
+            <span style={{ fontSize: 13, lineHeight: 1.35 }}>{x.effect}</span>
+            <span style={{ alignSelf: 'flex-start', height: 22, padding: '0 9px', borderRadius: 11, display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, background: TONE[x.tone].bg, color: TONE[x.tone].fg }}>{x.state}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }

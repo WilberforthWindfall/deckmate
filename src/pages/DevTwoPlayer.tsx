@@ -24,7 +24,7 @@ export default function DevTwoPlayer() {
   }, []);
   return (
     <Campaign online={{
-      id: `dev-${me}`, me, c, names: { R: 'Spieler Rot', K: 'Spieler Blau' }, name: 'Testkampagne',
+      id: `dev-${me}`, me, c, names: { R: 'Spieler Rot', K: 'Spieler Blau' }, name: 'Testkampagne', uid: `dev-${me}`, userName: me === 'R' ? 'Spieler Rot' : 'Spieler Blau',
       commit: async (fn) => { const next = fn(read(), me); localStorage.setItem(KEY, JSON.stringify(next)); setC(next); },
       startBattle: async () => { throw new Error('Brett-Schlachten gehen im Testmodus nicht – bitte auswürfeln.'); },
     }} />

@@ -42,13 +42,15 @@ export default function LocalGame() {
       overActions={<button type="button" className="primary" onClick={() => { setFree(false); setSt(newGame(Math.random, st.options)); }}>Neue Partie</button>}
       footer={
         <div className="stack" style={{ gap: 8 }}>
-          <div className="lbl">Partie und Testszenen</div>
           <div className="row">
             <button type="button" className="primary" onClick={() => { setFree(false); setSt(newGame(Math.random, st.options)); }}>Neue Partie</button>
-            {Object.entries(SCENES).map(([k, s]) => <button key={k} type="button" onClick={() => loadScene(k)}>{s.label}</button>)}
+            {!free && st.phase === 'play' && <button type="button" className="ghost" onClick={() => onAction({ type: 'resign', side: st.turn })}>Aufgeben ({st.turn === 'M' ? 'Mannschaft' : 'Offiziere'})</button>}
           </div>
-          {!free && st.phase === 'play' && <button type="button" className="ghost" style={{ alignSelf: 'flex-start' }} onClick={() => onAction({ type: 'resign', side: st.turn })}>Aufgeben ({st.turn === 'M' ? 'Mannschaft' : 'Offiziere'})</button>}
-          <div className="rule">Testszenen laufen ohne Zugreihenfolge und ohne Karten.</div>
+          <details className="fold">
+            <summary>Testszenen für Regeln</summary>
+            <div className="row">{Object.entries(SCENES).map(([k, s]) => <button key={k} type="button" onClick={() => loadScene(k)}>{s.label}</button>)}</div>
+            <div className="rule">Ohne Zugreihenfolge und ohne Karten.</div>
+          </details>
         </div>
       }
     />
