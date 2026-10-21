@@ -2,7 +2,7 @@
 // Armies walk along hex fields; every field an army enters becomes its house's. Conflicts happen where armies meet
 // in the same step, swap places, or walk into a standing enemy. Clear superiority wins automatically; close fights
 // become a Deckmate battle (see game/battle.ts). Pure and serializable: the UI stores the whole state as JSON.
-import { newBattle } from '../game/battle.ts';
+import { MAX_STONES, newBattle } from '../game/battle.ts';
 import { CARDS, type Army, type CardKey, type GameState, type Rng } from '../game/rules.ts';
 import {
   CITY_HEX, HEX, HEX_ADJ, HOUSES, LAND, PROV, PROVINCES, cityHex, hexDist, hexLand, hexName, stepCost, walkPath,
@@ -871,7 +871,7 @@ export function applyBattle(prev: Campaign, id: string, out: BattleOutcome): Cam
   if (!b) throw new Error('Diese Schlacht gibt es nicht.');
   const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
   const log: string[] = [];
-  const attReserve = Math.max(0, att.size - MAX_ARMY), defReserve = Math.max(0, def.size - 12);
+  const attReserve = Math.max(0, att.size - MAX_ARMY), defReserve = Math.max(0, def.size - MAX_STONES);
   att.size = out.attacker.size + attReserve; att.spec = out.attacker.spec;
   def.size = out.defender.size + defReserve;
   c.battles = c.battles.filter((x) => x.id !== id);
@@ -918,9 +918,9 @@ export function battleGame(c: Campaign, id: string, rng: Rng): GameState {
   const b = c.battles.find((x) => x.id === id)!;
   const att = armyById(c, b.attacker)!, def = armyById(c, b.defender)!;
   const st = newBattle({
-    province: hexName(b.hex), terrain: LAND[hexLand(b.hex)].battle,
+    province: hexName(b.hex), terrain: LAND[hexLand(b.hex)].battle, land: hexLand(b.hex),
     attacker: { house: hn(att.house), size: Math.min(MAX_ARMY, att.size), spec: att.spec },
-    defender: { house: hn(def.house), size: Math.min(12, def.size), spec: noSpec() },
+    defender: { house: hn(def.house), size: Math.min(MAX_STONES, def.size), spec: noSpec() },
   }, rng);
   const keys = Object.keys(CARDS) as CardKey[];
   const vet = (a: CArmy) => (xpOn(c) && rankOf(a) >= 2 ? 1 : 0);

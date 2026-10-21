@@ -9,7 +9,9 @@ export type CardKey = 'grog' | 'kopf' | 'boee' | 'arzt' | 'wache' | 'blatt';
 export type Rng = () => number;
 export type Terrain = 'ebene' | 'fluss' | 'gebirge' | 'huegel';
 export interface Army { house: string; size: number; spec: { CAP: number; KAP: number; KAN: number; MAR: number } }
-export interface BattleInfo { province: string; terrain: Terrain; attacker: Army; defender: Army; first?: Side }
+export interface BattleInfo { province: string; terrain: Terrain; attacker: Army; defender: Army; first?: Side;
+  /** Landscape of the campaign hex (A, W, S, G, F, K, H) – only changes how the board looks. */
+  land?: string }
 
 export interface Move { from: number; to: number; path: number[]; cap: number[]; retreat?: boolean }
 export interface LastMove extends Move { t: PieceType; s: Side }
@@ -26,7 +28,9 @@ export interface GameState {
   moveNo: number;
   hands: Record<Side, CardKey[]>;
   captured: Record<Side, PieceType[]>;
-  fx: { skip: Record<Side, number>; noPflicht: boolean; retreat: boolean; played: boolean; shieldPick: boolean; moved?: boolean };
+  fx: { skip: Record<Side, number>; noPflicht: boolean; retreat: boolean; played: boolean; shieldPick: boolean; moved?: boolean;
+    /** "Ruhe vor dem Sturm": this side may not capture in its next turn. */
+    calm?: Side | null };
   pending: null | { kind: 'promoM' | 'promoO'; at: number };
   options: Options;
   lastMove: LastMove | null;
@@ -57,9 +61,10 @@ export const CARDS: Record<CardKey, { t: string; sym: string; e: string; M: stri
   grog: { t: 'Grog-Fass', sym: '⚓', e: 'Die Gegenseite setzt ihren nächsten Zug aus.',
     O: 'Ein Fass Grog von der Dumpling ist unter Deck „verloren gegangen“. Die Mannschaft singt Shanties und ist bis zur nächsten Glocke zu nichts zu gebrauchen.',
     M: 'Captain Yorrick Wright lädt zum Dinner in die Offiziersmesse. Nach dem dritten Glas Port ist auf dem Achterdeck niemand mehr dienstfähig.' },
-  kopf: { t: 'Kühler Kopf', sym: '⚖', e: 'In diesem Zug entfällt deine Schlagpflicht.',
-    O: 'Ein Offizier der Heart of the Tempest lässt sich nicht zu einem übereilten Angriff hinreißen. Erst denken, dann feuern.',
-    M: 'Der Bootsmann pfeift die Leute zurück. Wer jetzt blind stürmt, landet im Kielwasser.' },
+  // Key stays "kopf" (formerly "Kühler Kopf") so that saved and running games keep their hands.
+  kopf: { t: 'Ruhe vor dem Sturm', sym: '☁', e: 'Die Gegenseite darf in ihrem nächsten Zug nicht schlagen.',
+    O: 'Vor der Küste von Maltan fällt das Barometer ins Bodenlose. Captain Wright lässt alle Mann Segel reffen. Für Händel an Deck bleibt keine Hand frei.',
+    M: 'Totenstille vor dem Unwetter. Die Offiziere der Heart of the Tempest stehen am Glas und starren auf den Horizont. Um die Mannschaft kümmert sich gerade keiner.' },
   boee: { t: 'Böe von Steuerbord', sym: '≈', e: 'Eine deiner Figuren darf in diesem Zug 1 Feld in jede Richtung auf ein freies Feld ziehen. Die Schlagpflicht entfällt.',
     O: 'Eine Böe vor der Küste von Maltan wirft das Schiff auf die Seite. Die Offiziere suchen sich neue Positionen.',
     M: 'Die See schlägt über die Reling. Die Leute weichen aus, wohin es eben geht.' },
@@ -91,7 +96,7 @@ export const DEFAULT_OPTIONS: Options = { mPflicht: false, sideFirst: true };
 export function startBoard(): Square[] {
   const b: Square[] = Array(64).fill(null);
   const put = (n: string, t: PieceType) => { b[fromName(n)] = { t, s: PIECES[t].s }; };
-  ['a1', 'c1', 'e1', 'g1', 'b2', 'd2', 'f2', 'h2', 'a3', 'c3', 'e3', 'g3'].forEach((n) => put(n, 'stone'));
+  ['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1', 'b2', 'd2', 'f2', 'h2', 'a3', 'c3', 'e3', 'g3'].forEach((n) => put(n, 'stone'));
   (['KAN', 'MAR', 'KAP', 'CAP', 'FL', 'KAP', 'MAR', 'KAN'] as PieceType[]).forEach((t, c) => put('abcdefgh'[c] + '8', t));
   'abcdefgh'.split('').forEach((f) => put(f + '7', 'INF'));
   return b;
@@ -182,9 +187,19 @@ export function legalMoves(st: GameState, from: number, free = false): Move[] {
       if (inB(rr, cc) && !st.board[i] && !mv.some((m) => m.to === i)) mv.push({ from, to: i, cap: [], path: [i], retreat: true });
     }
   }
+  if (calmed(st, p.s)) return mv.filter((m) => !m.cap.length);
   const exempt = own && (st.fx.noPflicht || st.fx.retreat);
   if (!exempt && mustCapture(st.board, p.s, st.options)) mv = mv.filter((m) => m.cap.length);
   return mv;
+}
+
+/**
+ * "Ruhe vor dem Sturm" holds for `side` – unless that side has no quiet move at all, then the card fizzles
+ * (nobody may be left without a legal move).
+ */
+export function calmed(st: GameState, side: Side): boolean {
+  if (st.fx.calm !== side || st.turn !== side) return false;
+  return st.board.some((p, i) => p && p.s === side && rawMoves(st.board, i, st.options).some((m) => !m.cap.length));
 }
 
 export function winnerOf(board: Square[]): Side | null {
@@ -237,6 +252,7 @@ function finishTurn(st: GameState) {
   const ending = st.turn;
   for (const p of st.board) if (p && p.s !== ending) delete p.shielded;
   st.fx.noPflicht = false; st.fx.retreat = false; st.fx.played = false; st.fx.moved = false;
+  if (st.fx.calm === ending) st.fx.calm = null;
   st.moveNo++;
   const other = opp(ending);
   if (st.fx.skip[other] > 0) { st.fx.skip[other]--; pushLog(st, `${SIDE_NAME[other]} setzen aus – ${SIDE_NAME[ending]} ziehen erneut`); }
@@ -244,7 +260,7 @@ function finishTurn(st: GameState) {
 }
 
 /** Cards that change how a piece moves only make sense before the move. */
-export const BEFORE_MOVE_ONLY: CardKey[] = ['kopf', 'boee'];
+export const BEFORE_MOVE_ONLY: CardKey[] = ['boee'];
 
 /** True if `side` still holds a card it could play right now. */
 export function hasPlayableCard(st: GameState, side: Side): boolean {
@@ -316,10 +332,7 @@ export function resolveConversion(prev: GameState, t: PieceType): GameState {
 export function reviveSquare(board: Square[], side: Side, t: PieceType): number | null {
   const order = [3, 4, 2, 5, 1, 6, 0, 7];
   if (side === 'M') {
-    for (const r of [7, 6]) for (const c of order) {
-      if (t === 'stone' && (r + c) % 2 === 0) continue;
-      if (!board[idx(r, c)]) return idx(r, c);
-    }
+    for (const r of [7, 6]) for (const c of order) if (!board[idx(r, c)]) return idx(r, c);
     return null;
   }
   for (const r of t === 'INF' ? [1, 0] : [0, 1]) for (const c of order) if (!board[idx(r, c)]) return idx(r, c);
@@ -354,7 +367,7 @@ export function playCard(prev: GameState, side: Side, handIndex: number, rng: Rn
   pushLog(st, `${SIDE_NAME[side]} spielen „${CARDS[key].t}“`);
   const o = opp(side);
   if (key === 'grog') st.fx.skip[o]++;
-  if (key === 'kopf') st.fx.noPflicht = true;
+  if (key === 'kopf') { st.fx.calm = o; pushLog(st, `${SIDE_NAME[o]} dürfen im nächsten Zug nicht schlagen`); }
   if (key === 'boee') st.fx.retreat = true;
   if (key === 'arzt') {
     const t = st.captured[side].pop()!;
