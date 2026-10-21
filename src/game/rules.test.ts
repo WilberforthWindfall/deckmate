@@ -8,9 +8,10 @@ import {
 const fixed = (...vals: number[]) => { let i = 0; return () => vals[i++ % vals.length]; };
 const targets = (st: GameState, from: string) => legalMoves(st, f(from)).map((m) => sqName(m.to)).sort();
 
-test('Startaufstellung: 12 Steine, 16 Offiziere, je 2 Karten', () => {
+test('Startaufstellung: 16 Steine, 16 Offiziere, je 2 Karten', () => {
   const st = newGame(Math.random);
-  assert.equal(st.board.filter((p) => p?.s === 'M').length, 12);
+  assert.equal(st.board.filter((p) => p?.s === 'M').length, 16);
+  for (const n of ['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1']) assert.equal(st.board[f(n)]?.t, 'stone', n);
   assert.equal(st.board.filter((p) => p?.s === 'O').length, 16);
   assert.equal(st.board[f('e8')]?.t, 'FL');
   assert.equal(st.board[f('d8')]?.t, 'CAP');
@@ -107,11 +108,34 @@ test('Karte Grog-Fass: Gegenseite setzt aus', () => {
   assert.equal(after.fx.skip.O, 0);
 });
 
-test('Karte Kühler Kopf hebt die Schlagpflicht auf', () => {
-  const st = scene([['a8', 'KAN'], ['a3', 'stone'], ['g8', 'MAR'], ['e8', 'FL']]);
+test('Ruhe vor dem Sturm: Die Offiziere dürfen im nächsten Zug nicht schlagen, trotz Schlagpflicht', () => {
+  const st = scene([['a8', 'KAN'], ['a3', 'stone'], ['h3', 'stone'], ['e8', 'FL']]);
+  st.turn = 'M'; st.hands.M = ['kopf'];
+  const played = applyMove(playCard(st, 'M', 0, Math.random), f('h3'), f('g4'));
+  assert.equal(played.turn, 'O');
+  assert.equal(played.fx.calm, 'O');
+  assert.ok(!targets(played, 'a8').includes('a3'));
+  assert.ok(targets(played, 'a8').length > 0, 'ruhige Züge bleiben erlaubt');
+  assert.ok(targets(played, 'e8').length > 0, 'ohne Schlagpflicht dürfen auch andere Figuren ziehen');
+  const afterO = applyMove(played, f('e8'), f('d8'));
+  assert.equal(afterO.fx.calm, null, 'wirkt nur einen Zug');
+});
+
+test('Ruhe vor dem Sturm wirkt auch nach dem Ziehen und gegen die Mannschaft', () => {
+  let st = scene([['c3', 'stone'], ['d4', 'MAR'], ['e8', 'FL'], ['h8', 'KAN']]);
   st.turn = 'O'; st.hands.O = ['kopf'];
-  const played = playCard(st, 'O', 0, Math.random);
-  assert.ok(targets(played, 'g8').length > 0);
+  st = applyMove(st, f('e8'), f('f8'));
+  assert.equal(st.turn, 'O', 'Karte nach dem Zug noch spielbar');
+  st = playCard(st, 'O', 0, Math.random);
+  assert.equal(st.turn, 'M');
+  assert.deepEqual(targets(st, 'c3'), ['b4']);
+});
+
+test('Ruhe vor dem Sturm verpufft, wenn die Gegenseite nur schlagen könnte', () => {
+  let st = scene([['a8', 'FL'], ['b8', 'stone'], ['a7', 'stone'], ['b7', 'stone'], ['h3', 'stone']]);
+  st.turn = 'M'; st.hands.M = ['kopf'];
+  st = applyMove(playCard(st, 'M', 0, Math.random), f('h3'), f('g4'));
+  assert.deepEqual(targets(st, 'a8'), ['a7', 'b7', 'b8']);
 });
 
 test('Karte Ehrenwache schützt bis zum Ende des gegnerischen Zugs', () => {
@@ -160,7 +184,7 @@ test('Zustand ist als JSON speicherbar und bleibt identisch', () => {
 
 test('Karte nach dem Ziehen: Zug wartet, bis Karte gespielt oder Zug beendet', () => {
   let st = startGame(newGame(Math.random), 'M');
-  st.hands.M = ['grog', 'kopf'];
+  st.hands.M = ['grog', 'boee'];
   st = applyMove(st, f('c3'), f('d4'));
   assert.equal(st.turn, 'M');
   assert.equal(st.fx.moved, true);
@@ -175,7 +199,7 @@ test('Karte nach dem Ziehen: Zug wartet, bis Karte gespielt oder Zug beendet', (
 
 test('Ohne spielbare Karte geht der Zug nach dem Ziehen sofort weiter', () => {
   let st = startGame(newGame(Math.random), 'M');
-  st.hands.M = ['kopf'];
+  st.hands.M = ['boee'];
   st = applyMove(st, f('c3'), f('d4'));
   assert.equal(st.turn, 'O');
 });

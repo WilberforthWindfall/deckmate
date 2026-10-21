@@ -12,7 +12,7 @@ test('Aufstellung: Heer bestimmt, welche Figuren fehlen', () => {
   assert.deepEqual(officerLineup(rav), { FL: 1, CAP: 1, KAP: 2, KAN: 1, MAR: 1, INF: 6 });
   assert.equal(crewLineup(ker), 10);
   const st = newBattle(info(), Math.random);
-  assert.deepEqual(st.deploy, { O: { KAN: 1, MAR: 1, INF: 2 }, M: { stone: 2 } });
+  assert.deepEqual(st.deploy, { O: { KAN: 1, MAR: 1, INF: 2 }, M: { stone: 6 } });
   assert.equal(deployText(st, 'O'), '1 Kanonade, 1 Marine, 2 Infanteristen');
   assert.throws(() => startGame(st, 'M'), /Erst aufstellen/);
 });
@@ -21,7 +21,7 @@ test('Aufstellung: jede Seite wählt selbst, der First Leutnant bleibt', () => {
   let st = newBattle(info(), Math.random);
   assert.throws(() => removePiece(st, f('e8')), /First Leutnant/);
   assert.throws(() => removePiece(st, f('d8')), /keine/);
-  for (const n of ['a8', 'b8', 'a7', 'h7', 'a3', 'g3']) st = removePiece(st, f(n));
+  for (const n of ['a8', 'b8', 'a7', 'h7', 'a3', 'g3', 'b1', 'd1', 'f1', 'h1']) st = removePiece(st, f(n));
   assert.equal(st.deploy, undefined);
   assert.equal(count(st, 'O'), 12);
   assert.equal(count(st, 'M'), 10);
@@ -30,21 +30,21 @@ test('Aufstellung: jede Seite wählt selbst, der First Leutnant bleibt', () => {
 });
 
 test('Furt: Infanteristen ohne Doppelschritt, in der Ebene mit', () => {
-  const ford = startGame(newBattle({ ...info(), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 12 } }, Math.random), 'O');
+  const ford = startGame(newBattle({ ...info(), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random), 'O');
   assert.deepEqual(legalMoves(ford, f('d7')).map((m) => sqName(m.to)), ['d6']);
-  const plain = startGame(newBattle({ ...info('ebene'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 12 } }, Math.random), 'O');
+  const plain = startGame(newBattle({ ...info('ebene'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random), 'O');
   assert.deepEqual(legalMoves(plain, f('d7')).map((m) => sqName(m.to)).sort(), ['d5', 'd6']);
 });
 
 test('Gelände: Gebirge gibt dem Verteidiger eine Karte, auf dem Hügel beginnt die Mannschaft', () => {
   assert.equal(newBattle(info('gebirge'), Math.random).hands.M.length, 3);
-  const hill = newBattle({ ...info('huegel'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 12 } }, Math.random);
+  const hill = newBattle({ ...info('huegel'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random);
   assert.throws(() => startGame(hill, 'O'), /Mannschaft/);
   assert.equal(startGame(hill, 'M').turn, 'M');
 });
 
 test('Ergebnis: Überlebende gehen zurück, Aufgabe der Mannschaft ist Rückzug', () => {
-  let st = newBattle({ ...info('ebene'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 12 } }, Math.random);
+  let st = newBattle({ ...info('ebene'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random);
   st = startGame(st, 'M');
   st.hands = { M: [], O: [] };
   st = applyMove(st, f('c3'), f('d4'));
@@ -52,7 +52,7 @@ test('Ergebnis: Überlebende gehen zurück, Aufgabe der Mannschaft ist Rückzug'
   const r = battleResult(st)!;
   assert.equal(r.winner, 'O');
   assert.equal(r.headline, 'Ravensmoor erobert Mittelland');
-  assert.match(r.detail, /zieht sich zurück und rettet 12 Steine/);
+  assert.match(r.detail, /zieht sich zurück und rettet 16 Steine/);
   assert.equal(r.attacker.size, 16);
   assert.equal(r.defender.lost, 0);
 });

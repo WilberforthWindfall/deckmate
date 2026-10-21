@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
 import { MAX_OFFICERS, MAX_STONES, TERRAIN, crewLineup, newBattle, officerLineup } from '../game/battle.ts';
-import type { Army, BattleInfo, GameState, Terrain } from '../game/rules.ts';
+import type { Army, BattleInfo, GameState } from '../game/rules.ts';
+import { LAND, type Land } from '../campaign/map.ts';
 
 // Campaign bridge, playable on one device: pick two armies and a terrain, deploy, fight, see who survives.
 
 const PRESET: BattleInfo = {
-  province: 'Mittelland', terrain: 'fluss',
+  province: 'Mittelland', terrain: 'fluss', land: 'F',
   attacker: { house: 'Ravensmoor', size: 12, spec: { CAP: 1, KAP: 2, KAN: 1, MAR: 1 } },
   defender: { house: 'Kerrow', size: 10, spec: { CAP: 0, KAP: 0, KAN: 0, MAR: 0 } },
 };
@@ -65,11 +66,12 @@ export default function BattleTest() {
           <h2>Schauplatz</h2>
           <label className="stack" style={{ gap: 4 }}><span className="lbl">Provinz</span>
             <input value={info.province} onChange={(e) => setInfo({ ...info, province: e.target.value })} required /></label>
-          <label className="stack" style={{ gap: 4 }}><span className="lbl">Gelände</span>
-            <select value={info.terrain} onChange={(e) => setInfo({ ...info, terrain: e.target.value as Terrain })}>
-              {(Object.keys(TERRAIN) as Terrain[]).map((t) => <option key={t} value={t}>{TERRAIN[t].n}</option>)}
+          <label className="stack" style={{ gap: 4 }}><span className="lbl">Landschaft</span>
+            <select value={info.land ?? ''} onChange={(e) => { const l = e.target.value as Land | ''; setInfo({ ...info, land: l || undefined, terrain: l ? LAND[l].battle : 'ebene' }); }}>
+              {(Object.keys(LAND) as Land[]).map((l) => <option key={l} value={l}>{LAND[l].n}</option>)}
+              <option value="">Schiffsdeck (ohne Landschaft)</option>
             </select></label>
-          <div className="rule">{TERRAIN[info.terrain].rule}</div>
+          <div className="rule">Gelände {TERRAIN[info.terrain].n}: {TERRAIN[info.terrain].rule}</div>
         </div>
 
         <div className="row" style={{ alignItems: 'stretch', gap: 12 }}>

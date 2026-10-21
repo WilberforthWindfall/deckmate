@@ -5,7 +5,7 @@ import {
 } from './rules.ts';
 
 export const MAX_OFFICERS = { CAP: 1, KAP: 2, KAN: 2, MAR: 2, INF: 8 } as const;
-export const MAX_STONES = 12;
+export const MAX_STONES = 16;
 
 export const TERRAIN: Record<Terrain, { n: string; rule: string }> = {
   ebene: { n: 'Ebene', rule: 'Keine Besonderheit.' },

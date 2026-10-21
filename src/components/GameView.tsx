@@ -87,6 +87,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   }, []);
 
   useEffect(() => {
+    table.current?.setLand(st.battle?.land);
     table.current?.update({ state: st, selected: sel, moves, shieldPick: st.fx.shieldPick && controls(st.turn), selectedCard: selCard, pickable });
   });
 
@@ -103,6 +104,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
 
   const chips: string[] = [];
   if (st.fx.noPflicht) chips.push('Keine Schlagpflicht');
+  if (st.fx.calm) chips.push(`Ruhe vor dem Sturm: ${SIDE_NAME[st.fx.calm]} schlagen nicht`);
   if (st.fx.retreat) chips.push('Böe: 1 Feld in jede Richtung');
   if (st.fx.shieldPick) chips.push('Figur für Ehrenwache wählen');
   if (st.fx.played && !st.fx.moved && !st.fx.shieldPick && st.phase === 'play') chips.push('Karte gespielt – jetzt ziehen');

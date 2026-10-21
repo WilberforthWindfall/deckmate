@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { LOOKS, boardTexture, groundTexture, props } from './landTable.ts';
 import { CARDS, rc, type CardKey, type GameState, type Move, type Piece, type Side, type Square } from '../game/rules.ts';
 
 export interface TableHandlers {
@@ -181,6 +182,14 @@ export class Table3D {
   private raf = 0;
   private ro: ResizeObserver;
   private reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private land: string | undefined = undefined;
+  private landReq = 0;
+  private hemi!: THREE.HemisphereLight;
+  private sun!: THREE.DirectionalLight;
+  private tableTop!: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial>;
+  private deckMap!: THREE.Texture;
+  private landBoard: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial> | null = null;
+  private landProps: THREE.Group | null = null;
 
   constructor(private host: HTMLElement, private handlers: TableHandlers) {
     const mobile = matchMedia('(max-width: 860px)').matches;
@@ -192,8 +201,10 @@ export class Table3D {
     const s = this.scene;
     s.background = new THREE.Color(0x0d1620);
     s.fog = new THREE.Fog(0x0d1620, 20, 38);
-    s.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a1208, 0.55 * Math.PI));
+    this.hemi = new THREE.HemisphereLight(0xcfe0ff, 0x1a1208, 0.55 * Math.PI);
+    s.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xfff1d6, 1.15 * Math.PI);
+    this.sun = sun;
     sun.position.set(-5, 11, 6); sun.castShadow = true;
     sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048);
     Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 30 });
@@ -205,6 +216,7 @@ export class Table3D {
     frame.position.y = -0.17; frame.receiveShadow = true; frame.castShadow = true; s.add(frame);
     const table = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, 0.2, 72), new THREE.MeshStandardMaterial({ map: woodTex('#1e2a36', '#0b1219', 5), roughness: 0.9 }));
     table.position.y = -0.48; table.receiveShadow = true; s.add(table);
+    this.tableTop = table; this.deckMap = table.material.map!;
     const tileGeo = new THREE.BoxGeometry(1, 0.1, 1);
     const light = new THREE.MeshStandardMaterial({ map: woodTex('#d9c9a3', '#8a6f43', 3), roughness: 0.6 });
     const dark = new THREE.MeshStandardMaterial({ map: woodTex('#7a5634', '#3a2412', 11), roughness: 0.6 });
@@ -258,6 +270,39 @@ export class Table3D {
   }
   topDown() { this.orbit.tPhi = 0.05; }
   zoom(d: number) { this.orbit.tRad = Math.max(7, Math.min(24, this.orbit.tRad + d)); }
+
+  /** Campaign battle landscape (A, W, S, G, F, K, H) or the ship deck (undefined). Only optics. */
+  setLand(land: string | undefined) {
+    if (land && !LOOKS[land]) land = undefined;
+    if (land === this.land) return;
+    this.land = land;
+    const req = ++this.landReq;
+    const s = this.scene;
+    if (this.landBoard) { s.remove(this.landBoard); this.landBoard.material.map?.dispose(); this.landBoard = null; }
+    if (this.landProps) { s.remove(this.landProps); this.landProps = null; }
+    const m = this.tableTop.material;
+    if (!land) {
+      (s.background as THREE.Color).set(0x0d1620); (s.fog as THREE.Fog).color.set(0x0d1620);
+      Object.assign(s.fog as THREE.Fog, { near: 20, far: 38 });
+      this.hemi.color.set(0xcfe0ff); this.hemi.groundColor.set(0x1a1208); this.hemi.intensity = 0.55 * Math.PI;
+      this.sun.color.set(0xfff1d6); this.sun.intensity = 1.15 * Math.PI;
+      m.map = this.deckMap; m.color.set(0xffffff); m.needsUpdate = true;
+      return;
+    }
+    const look = LOOKS[land];
+    (s.background as THREE.Color).set(look.bg); (s.fog as THREE.Fog).color.set(look.bg);
+    Object.assign(s.fog as THREE.Fog, { near: look.fogNear, far: look.fogFar });
+    this.hemi.color.set(look.sky); this.hemi.groundColor.set(look.ground); this.hemi.intensity = look.hemi * Math.PI;
+    this.sun.color.set(look.sun); this.sun.intensity = look.sunI * Math.PI;
+    this.landProps = props(land); s.add(this.landProps);
+    Promise.all([boardTexture(land), groundTexture(land)]).then(([board, ground]) => {
+      if (req !== this.landReq) { board.dispose(); ground.dispose(); return; }
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ map: board, roughness: 0.85 }));
+      plane.rotation.x = -Math.PI / 2; plane.position.y = 0.0505; plane.receiveShadow = true;
+      this.landBoard = plane; s.add(plane);
+      m.map = ground; m.color.set(0x8c8c8c); m.needsUpdate = true;
+    }).catch(() => { /* tile missing: keep the wooden board */ });
+  }
 
   update(view: TableView) {
     const prev = this.view;
