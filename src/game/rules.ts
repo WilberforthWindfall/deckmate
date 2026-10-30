@@ -48,7 +48,7 @@ export const SIDE_NAME: Record<Side, string> = { M: 'Mannschaft', O: 'Offiziere'
 export const opp = (s: Side): Side => (s === 'M' ? 'O' : 'M');
 
 export const PIECES: Record<PieceType, { n: string; s: Side; r: string }> = {
-  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
+  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Die Serie darf nach jedem Sprung beendet werden. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
   FL: { n: 'First Leutnant', s: 'O', r: 'Zieht wie der König im Schach. Wird er geschlagen, gewinnt die Mannschaft.' },
   CAP: { n: 'Captain', s: 'O', r: 'Zieht wie die Dame im Schach.' },
   KAN: { n: 'Carronade', s: 'O', r: 'Zieht wie der Turm im Schach.' },
@@ -117,20 +117,24 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
     const first = [[-1, 0], [-1, -1], [-1, 1], ...(options.sideFirst ? [[0, -1], [0, 1]] : [])];
     const dfs = (cr: number, cc: number, jumped: number[], path: number[], isFirst: boolean) => {
       // Reaching the Achterdeck (rank 8) ends the series at once: the stone is promoted there (beta feedback 30.10.2026).
-      if (jumped.length && cr === 0) { out.push({ from, to: idx(cr, cc), cap: jumped, path }); return; }
-      let ext = false;
+      if (jumped.length && cr === 0) { series.push({ from, to: idx(cr, cc), cap: jumped, path }); return; }
+      // A series may be stopped after any jump (rule clarification 30.10.2026): every landing square is a legal end.
+      if (jumped.length) series.push({ from, to: idx(cr, cc), cap: jumped, path });
       for (const [dr, dc] of isFirst ? first : D8) {
         const mr = cr + dr, mc = cc + dc, lr = cr + 2 * dr, lc = cc + 2 * dc;
         if (!inB(lr, lc)) continue;
         const mi = idx(mr, mc), li = idx(lr, lc);
         if (!enemy(board[mi]) || jumped.includes(mi)) continue;
         if (board[li] && li !== from) continue;
-        ext = true;
         dfs(lr, lc, [...jumped, mi], [...path, li], false);
       }
-      if (!ext && jumped.length) out.push({ from, to: idx(cr, cc), cap: jumped, path });
     };
+    const series: Move[] = [];
     dfs(r, c, [], [], true);
+    // One move per target square: the one that captures most.
+    const best = new Map<number, Move>();
+    for (const m of series) { const b = best.get(m.to); if (!b || m.cap.length > b.cap.length) best.set(m.to, m); }
+    out.push(...best.values());
     for (const dc of [-1, 1]) {
       const rr = r - 1, cc = c + dc;
       if (inB(rr, cc) && !board[idx(rr, cc)]) out.push({ from, to: idx(rr, cc), cap: [], path: [idx(rr, cc)] });
