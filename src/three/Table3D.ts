@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LOOKS, boardTexture, groundTexture, props } from './landTable.ts';
-import { CARDS, rc, type CardKey, type GameState, type Move, type Piece, type Side, type Square } from '../game/rules.ts';
+import { CARDS, rc, type CardKey, type GameState, type Move, type Piece, type Side, type Square, type PieceType } from '../game/rules.ts';
 
 export interface TableHandlers {
   onSquare: (i: number) => void;
@@ -165,6 +165,8 @@ export class Table3D {
   private pieceGroup = new THREE.Group();
   private markGroup = new THREE.Group();
   private cardGroup = new THREE.Group();
+  private capturedGroup = new THREE.Group();
+  private capturedKey = '';
   private meshes: (THREE.Group | null)[] = [];
   private cardMeshes: THREE.Mesh[] = [];
   private ray = new THREE.Raycaster();
@@ -234,7 +236,7 @@ export class Table3D {
       const a = label(String(8 - r)); a.position.set(-4.35, 0.04, r - 3.5); s.add(a);
       const b = label(String(8 - r)); b.position.set(4.35, 0.04, r - 3.5); b.rotation.z = Math.PI; s.add(b);
     }
-    s.add(this.pieceGroup, this.markGroup, this.cardGroup);
+    s.add(this.pieceGroup, this.markGroup, this.cardGroup, this.capturedGroup);
 
     const el = this.renderer.domElement;
     el.style.touchAction = 'none';
@@ -321,7 +323,32 @@ export class Table3D {
       this.rebuild(st);
     }
     this.renderCards(st);
+    if (!this.busy) this.renderCaptured(st);
     if (!this.busy) this.marks();
+  }
+
+  /**
+   * Captured pieces stand in rows beside the board (beta feedback #27): what the crew took on the right of the crew,
+   * what the officers took on the left, each starting at its own side.
+   */
+  private renderCaptured(st: GameState) {
+    const key = JSON.stringify(st.captured ?? {});
+    if (key === this.capturedKey) return;
+    this.capturedKey = key;
+    this.capturedGroup.clear();
+    const place = (list: PieceType[], x0: number, dir: 1 | -1, zStart: number, zDir: 1 | -1, owner: Side) => {
+      list.forEach((t, i) => {
+        const col = Math.floor(i / 12), row = i % 12;
+        const g = makePiece({ t, s: owner });
+        g.scale.setScalar(0.6);
+        g.position.set(x0 + dir * col * 0.62, -0.38, zStart + zDir * row * 0.62);
+        this.capturedGroup.add(g);
+      });
+    };
+    // Officers lost by the officers = taken by the crew → right of the crew (x > 0), starting near the crew.
+    place(st.captured?.O ?? [], 5.25, 1, 3.4, -1, 'O');
+    // Crew lost = taken by the officers → left of the crew (x < 0), starting near the officers.
+    place(st.captured?.M ?? [], -5.25, -1, -3.4, 1, 'M');
   }
 
   private rebuild(st: GameState) {

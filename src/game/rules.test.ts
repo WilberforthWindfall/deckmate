@@ -269,3 +269,17 @@ test('Feedback-Schnappschuss: Brett als Text mit Reihe 8 oben', async () => {
   assert.match(text.split('\n')[7], /^1  s s s s s s s s/);
   assert.equal(gameSnapshot(st).record.at(-1), 'Mannschaft beginnen');
 });
+
+test('Ausgespielte Karte wird für die Gegenseite gemerkt', () => {
+  const st = startGame({ ...newGame(Math.random), hands: { M: ['grog'], O: [] } }, 'M');
+  const played = playCard(st, 'M', 0, Math.random);
+  assert.equal(played.lastCard?.key, 'grog');
+  assert.equal(played.lastCard?.side, 'M');
+  assert.equal(played.lastCard?.v, played.v);
+});
+
+test('Geschlagene Figuren als Text', async () => {
+  const { capturedText } = await import('./battle.ts');
+  assert.equal(capturedText(['stone', 'stone', 'PT']), '2 Steine, 1 beförderter Turm');
+  assert.equal(capturedText([]), '');
+});

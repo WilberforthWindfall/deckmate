@@ -42,6 +42,8 @@ export interface GameState {
   log: string[];
   /** Complete protocol of the game (log is capped at 30 lines), used for feedback and replays. */
   record?: string[];
+  /** Last card played, so the other side can be shown it prominently (beta feedback #26). */
+  lastCard?: { side: Side; key: CardKey; moveNo: number; v: number } | null;
 }
 
 export const SIDE_NAME: Record<Side, string> = { M: 'Mannschaft', O: 'Offiziere' };
@@ -382,6 +384,7 @@ export function playCard(prev: GameState, side: Side, handIndex: number, rng: Rn
   st.hands[side].splice(handIndex, 1);
   st.fx.played = true;
   st.lastMove = null;
+  st.lastCard = { side, key, moveNo: prev.moveNo, v: prev.v + 1 };
   pushLog(st, `${SIDE_NAME[side]} spielen „${CARDS[key].t}“`);
   const o = opp(side);
   if (key === 'grog') st.fx.skip[o]++;

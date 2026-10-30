@@ -194,3 +194,21 @@ details.fold[open] { gap: 10px; }
   .feedback-fab button { animation: fab-glow 2.6s ease-in-out 2; }
   @keyframes fab-glow { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brass) 40%, transparent), 0 6px 18px rgba(0,0,0,.35); } }
 }
+
+/* Card played by the other side: large over the board until clicked away */
+.card-spot { z-index: 8; background: color-mix(in srgb, var(--sea) 72%, transparent); }
+.spot-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 100%; }
+.spot-head { font-family: var(--display); font-size: 20px; color: var(--parchment); text-align: center; }
+.spot-card { width: min(320px, 82vw); background: #EDE3CC; color: #2A1D10; border: 10px solid var(--coral); outline: 2px solid #A8874A; outline-offset: -16px; border-radius: 10px; padding: 22px 22px 20px; text-align: center; box-shadow: 0 18px 48px rgba(0,0,0,.5); }
+.spot-card.O { border-color: #1F3D66; }
+.spot-side { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; color: var(--coral); }
+.spot-card.O .spot-side { color: #1F3D66; }
+.spot-sym { width: 78px; height: 78px; margin: 12px auto; border-radius: 50%; display: grid; place-items: center; font-size: 40px; color: #F4ECD8; background: var(--coral); border: 3px solid var(--brass); }
+.spot-card.O .spot-sym { background: #1F3D66; }
+.spot-card h2 { font-family: var(--display); font-size: 26px; margin: 4px 0 8px; color: #2A1D10; }
+.spot-story { font-family: var(--story); font-style: italic; font-size: 14px; line-height: 1.5; margin: 0 0 12px; color: #3A2C1C; }
+.spot-effect { font-weight: 600; font-size: 15px; margin: 0; padding-top: 10px; border-top: 1px solid #A8874A; color: #2A1D10; }
+@media (prefers-reduced-motion: no-preference) {
+  .spot-card { animation: spot-in .45s cubic-bezier(.2,.9,.3,1.2); }
+  @keyframes spot-in { from { transform: translateY(40px) rotate(-6deg) scale(.85); opacity: 0; } }
+}
