@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { POST, diagnose, toIssue, validate } from './feedback.ts';
+import { POST, diagnose, gameSection, toIssue, validate } from './feedback.ts';
 
 const req = (body: unknown, ip = '1.2.3.4') => new Request('http://x/api/feedback', { method: 'POST', body: JSON.stringify(body), headers: { 'x-forwarded-for': ip, 'user-agent': 'Test' } });
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
@@ -53,4 +53,15 @@ test('Selbstauskunft: zeigt nur, ob der Token da ist, nie den Wert', () => {
   assert.deepEqual(d.similarNames, ['GITHUB_TOKEN', 'GITHUB_TOKEN_X']);
   assert.ok(!JSON.stringify(d).includes('geheim'));
   assert.equal(diagnose({ 'GITHUB_TOKEN ': 'x' }).configured, false);
+});
+
+test('Spielstand: Brett, nummerierte Zughistorie und Zustand landen im Issue', () => {
+  const i = toIssue({ disliked: 'Stein durfte weiterschlagen', where: 'partie', game: { board: '8 . . K', record: ['Neue Partie.', '1. Mannschaftsstein a6 → c8'], state: '{"v":3}' } });
+  assert.match(i.title, /Partie/);
+  assert.match(i.body, /### Spielstand beim Feedback/);
+  assert.match(i.body, /  2  1\. Mannschaftsstein a6 → c8/);
+  assert.match(i.body, /Zughistorie \(2 Einträge\)/);
+  assert.match(i.body, /\{"v":3\}/);
+  assert.equal(gameSection(undefined), '');
+  assert.ok(i.body.length < 65536);
 });

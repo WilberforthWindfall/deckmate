@@ -80,7 +80,7 @@ test('Beförderung: Pasch ergibt Turm, sonst Läufer, danach Seitenwechsel', () 
   assert.equal(resolvePromotionRoll(moved, [2, 5]).board[f('a8')]?.t, 'PL');
 });
 
-test('Infanterist: Doppelschritt aus der Startreihe und Umwandlung auf Reihe 1', () => {
+test('Fähnrich: Doppelschritt aus der Startreihe und Umwandlung auf Reihe 1', () => {
   const st = scene([['d7', 'INF'], ['e8', 'FL'], ['h1', 'stone']]);
   st.turn = 'O';
   assert.deepEqual(targets(st, 'd7'), ['d5', 'd6']);
@@ -223,4 +223,44 @@ test('Ehrenwache vor dem Ziehen: danach sind eigene Züge möglich', () => {
   st = chooseShield(playCard(st, 'O', 0, Math.random), f('e8'));
   assert.equal(st.turn, 'O');
   assert.ok(st.board.some((p, i) => p?.s === 'O' && legalMoves(st, i).length));
+});
+
+test('Achterdeck: Eine Schlagserie endet auf Reihe 8, der Stein wird befördert (Beta-Feedback 30.10.)', () => {
+  // Stein a6 springt über b7 auf c8. Früher schlug er von dort weiter über c7 nach c6 und wurde nie befördert.
+  const st = scene([['a6', 'stone'], ['b7', 'INF'], ['c7', 'INF'], ['e8', 'FL'], ['h1', 'stone']]);
+  st.turn = 'M';
+  const moves = legalMoves(st, f('a6')).filter((m) => m.cap.length);
+  assert.deepEqual(moves.map((m) => sqName(m.to)), ['c8']);
+  assert.deepEqual(moves[0].cap.map(sqName), ['b7']);
+  const after = applyMove(st, f('a6'), f('c8'));
+  assert.deepEqual(after.pending, { kind: 'promoM', at: f('c8') });
+  assert.equal(after.board[f('c7')]?.t, 'INF');
+  const promoted = resolvePromotionRoll(after, [3, 3]);
+  assert.equal(promoted.board[f('c8')]?.t, 'PT');
+});
+
+test('Beförderte Steine gelten als Offiziere und haben Schlagpflicht', () => {
+  const st = scene([['a8', 'PT'], ['a3', 'KAN'], ['h3', 'stone'], ['e7', 'FL']]);
+  st.turn = 'M';
+  assert.deepEqual(targets(st, 'h3'), []);
+  assert.deepEqual(targets(st, 'a8'), ['a3']);
+  const plain = scene([['b4', 'stone'], ['c5', 'KAN'], ['h3', 'stone'], ['e8', 'FL']]);
+  plain.turn = 'M';
+  assert.ok(targets(plain, 'h3').length > 0, 'Normale Steine bleiben ohne Schlagpflicht');
+});
+
+test('Protokoll: vollständige Zugliste neben dem kurzen Logbuch', () => {
+  let st = startGame(newGame(Math.random), 'M');
+  st = applyMove(st, f('c3'), f('d4'));
+  assert.ok((st.record ?? []).some((l) => l.includes('c3 → d4')));
+  assert.equal(st.record?.[0], 'Neue Partie. Karten verteilt.');
+});
+
+test('Feedback-Schnappschuss: Brett als Text mit Reihe 8 oben', async () => {
+  const { boardText, gameSnapshot } = await import('./snapshot.ts');
+  const st = startGame(newGame(Math.random), 'M');
+  const text = boardText(st);
+  assert.match(text.split('\n')[0], /^8  K M P C F P M K/);
+  assert.match(text.split('\n')[7], /^1  s s s s s s s s/);
+  assert.equal(gameSnapshot(st).record.at(-1), 'Mannschaft beginnen');
 });

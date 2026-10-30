@@ -6,9 +6,10 @@ import { newGame, scene, type GameState, type PieceType } from '../game/rules.ts
 
 const SCENES: Record<string, { label: string; pieces: [string, PieceType][]; hint: string }> = {
   serie: { label: 'Schlagserie', hint: 'Wähle den Stein auf c3 und fahre über das Ziel.', pieces: [['c3', 'stone'], ['g2', 'stone'], ['d4', 'MAR'], ['d6', 'KAP'], ['b6', 'KAN'], ['e8', 'FL'], ['h8', 'CAP']] },
-  pflicht: { label: 'Schlagpflicht', hint: 'Wähle die Marine auf g8: Die Kanonade muss schlagen.', pieces: [['a8', 'KAN'], ['a3', 'stone'], ['e3', 'stone'], ['f2', 'stone'], ['e8', 'FL'], ['g8', 'MAR']] },
+  achterdeck: { label: 'Achterdeck', hint: 'Stein a6 schlägt b7 und landet auf c8: Der Zug endet dort, es wird befördert. Weiterschlagen über c7 ist nicht erlaubt.', pieces: [['a6', 'stone'], ['b7', 'INF'], ['c7', 'INF'], ['e8', 'FL'], ['h1', 'stone']] },
+  pflicht: { label: 'Schlagpflicht', hint: 'Wähle die Marine auf g8: Die Carronade muss schlagen.', pieces: [['a8', 'KAN'], ['a3', 'stone'], ['e3', 'stone'], ['f2', 'stone'], ['e8', 'FL'], ['g8', 'MAR']] },
   befoerderung: { label: 'Beförderung', hint: 'Ziehe den Stein von b7 auf die Grundreihe.', pieces: [['b7', 'stone'], ['g8', 'FL'], ['h6', 'KAP'], ['e2', 'stone']] },
-  umwandlung: { label: 'Infanterist-Umwandlung', hint: 'Infanterist d2 muss e1 schlagen und wird umgewandelt.', pieces: [['d2', 'INF'], ['e1', 'stone'], ['a1', 'stone'], ['e8', 'FL']] },
+  umwandlung: { label: 'Fähnrich-Umwandlung', hint: 'Fähnrich d2 muss e1 schlagen und wird umgewandelt.', pieces: [['d2', 'INF'], ['e1', 'stone'], ['a1', 'stone'], ['e8', 'FL']] },
 };
 
 export default function LocalGame() {

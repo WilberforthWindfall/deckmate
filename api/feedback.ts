@@ -14,10 +14,21 @@ export interface FeedbackInput {
   context?: Record<string, string | number | boolean | null>;
   /** Honeypot: real people leave this empty. */
   website?: string;
+  /** Snapshot of a running board game, so the report can be retraced move by move. */
+  game?: GameSnapshot;
+}
+
+export interface GameSnapshot {
+  /** Full protocol, oldest line first. */
+  record?: string[];
+  /** Board as text diagram (rank 8 on top). */
+  board?: string;
+  /** Complete game state as JSON, to load the exact position again. */
+  state?: string;
 }
 
 const MAX = 2000;
-const WHERE: Record<string, string> = { lobby: 'Lobby', 'kampagne-ende': 'Ende der Kampagne', kampagne: 'Kampagne' };
+const WHERE: Record<string, string> = { lobby: 'Lobby', 'kampagne-ende': 'Ende der Kampagne', kampagne: 'Kampagne', partie: 'Partie', schlacht: 'Schlacht', lokal: 'Partie an einem Gerät' };
 
 const clean = (s: unknown, max = MAX) => (typeof s === 'string' ? s.replace(/\r\n/g, '\n').trim().slice(0, max) : '');
 /** Keep @mentions and #references in tester text from pinging people or linking issues. */
@@ -54,9 +65,25 @@ export function toIssue(x: FeedbackInput, meta: { userAgent?: string; now?: Date
     sec('Was hat genervt oder war unklar?', clean(x.disliked)),
     sec('Was wünschst du dir?', clean(x.wish)),
     '| | |\n|---|---|\n' + rows.map(([k, v]) => `| ${k} | ${String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ')} |`).join('\n'),
+    gameSection(x.game),
     '\n_Über den Feedbackbogen im Spiel eingereicht._',
   ].filter(Boolean).join('\n');
   return { title: title.slice(0, 240), body, labels: ['feedback'] };
+}
+
+const fence = (t: string) => '```text\n' + t.replace(/```/g, "'''") + '\n```';
+
+/** Board, numbered protocol and raw state of the game the feedback refers to. Fits into GitHub's 65 536 characters. */
+export function gameSection(g?: GameSnapshot): string {
+  if (!g) return '';
+  const lines = Array.isArray(g.record) ? g.record.filter((l) => typeof l === 'string').slice(-400).map((l) => clean(l, 200)) : [];
+  const board = clean(g.board, 1200);
+  const state = typeof g.state === 'string' ? g.state.slice(0, 30000) : '';
+  const parts = ['\n### Spielstand beim Feedback'];
+  if (board) parts.push(fence(board));
+  if (lines.length) parts.push(`<details><summary>Zughistorie (${lines.length} Einträge)</summary>\n\n${fence(lines.map((l, i) => `${String(i + 1).padStart(3)}  ${l}`).join('\n'))}\n</details>`);
+  if (state) parts.push(`<details><summary>Spielzustand (JSON, zum Nachstellen)</summary>\n\n${fence(state)}\n</details>`);
+  return parts.length > 1 ? parts.join('\n\n') : '';
 }
 
 // Small in-memory brake per instance: at most 5 reports per address in 10 minutes.

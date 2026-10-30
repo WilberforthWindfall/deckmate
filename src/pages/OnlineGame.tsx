@@ -78,6 +78,7 @@ export default function OnlineGame() {
       names={game.names}
       waiting={waiting}
       onAction={(a) => sendAction(user, id, a)}
+      feedback={{ name: user.displayName ?? undefined, context: { Partie: game.name, 'Partie-ID': id, Kampagne: game.campaign?.id ?? null } }}
       header={
         <div className="stack" style={{ gap: 10 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>{game.campaign ? <Link to={`/kampagne/${game.campaign.id}`}>← Zur Kampagne</Link> : <Link to="/">← Zur Lobby</Link>}<span className="rule">{game.name}</span></div>
