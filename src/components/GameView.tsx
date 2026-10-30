@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Table3D } from '../three/Table3D.ts';
 import type { Action } from '../game/actions.ts';
 import { TERRAIN, battleResult, deployText } from '../game/battle.ts';
+import { FeedbackButton } from './Feedback.tsx';
+import { gameSnapshot } from '../game/snapshot.ts';
 import {
   CARDS, PIECES, SIDE_NAME, cardBlocker, legalMoves, sqName, type GameState, type Options, type PieceType, type Side,
 } from '../game/rules.ts';
@@ -19,11 +21,13 @@ interface Props {
   footer?: ReactNode;
   overActions?: ReactNode;
   onOptions?: (o: Options) => void;
+  /** Where the in-game feedback comes from and extra facts for the report (game id, players …). */
+  feedback?: { where?: string; context?: Record<string, string | number | boolean | null>; name?: string };
 }
 
 const DICE = '⚀⚁⚂⚃⚄⚅';
 
-export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions }: Props) {
+export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions, feedback }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const table = useRef<Table3D | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -133,6 +137,25 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     <div className="app">
       <div className="stage" ref={host}>
         <div className="hud" title="Ziehen dreht · Mausrad zoomt"><h1>Deckmate</h1></div>
+        <div className="feedback-fab">
+          <FeedbackButton
+            where={feedback?.where ?? (st.battle ? 'schlacht' : mySide === null ? 'lokal' : 'partie')}
+            variant="game" className="primary" defaultName={feedback?.name}
+            title="Feedback zu dieser Stelle"
+            intro="Stimmt eine Regel nicht, hakt etwas oder hast du eine Idee? Beschreib kurz, was passiert ist."
+            label={<><span aria-hidden="true">✎</span> Feedback</>}
+            context={{
+              Zug: st.moveNo,
+              'Am Zug': st.phase === 'play' ? SIDE_NAME[st.turn] : st.phase === 'over' ? 'beendet' : 'vor dem Start',
+              'Meine Seite': mySide ? SIDE_NAME[mySide] : 'beide (ein Gerät)',
+              Mannschaft: names?.M ?? null, Offiziere: names?.O ?? null,
+              Schlacht: st.battle?.province ?? null,
+              Testszene: freeMode ? true : null,
+              ...feedback?.context,
+            }}
+            game={() => gameSnapshot(st)}
+          />
+        </div>
         {toast && <div className="toast" role="alert">{toast}</div>}
         <div className="viewbtns">
           <button type="button" onClick={() => table.current?.face('M')}>Mannschaft</button>
@@ -281,7 +304,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           {onOptions ? <>
             <label className="opt"><input type="checkbox" checked={st.options.sideFirst} onChange={(e) => onOptions({ ...st.options, sideFirst: e.target.checked })} /> Seitlicher Schlag als erster Schlag erlaubt</label>
           </> : <div className="rule">Seitlicher Erstschlag: {st.options.sideFirst ? 'ja' : 'nein'}</div>}
-          <div className="rule">Schlagpflicht gilt nur für die Offiziere. Die Mannschaft darf schlagen, muss aber nicht.</div>
+          <div className="rule">Schlagpflicht gilt für die Offiziere und für beförderte Steine. Gewöhnliche Mannschaftssteine dürfen schlagen, müssen aber nicht.</div>
           <label className="opt"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Kamera dreht zur Seite, die am Zug ist</label>
           <div className="legend">
             <span><i style={{ background: 'var(--mark)', borderRadius: '50%' }} />Zug</span>

@@ -1,11 +1,22 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 
 type Ctx = Record<string, string | number | boolean | null>;
+/** Snapshot of the board game the feedback refers to (see api/feedback.ts). */
+export interface GameSnapshot { record?: string[]; board?: string; state?: string }
+/** 'game': asks what happened and what should have happened, for rule and bug reports during a game. */
+type Variant = 'general' | 'game';
+const LABELS: Record<Variant, [string, string, string]> = {
+  general: ['Was hat gefallen?', 'Was hat genervt oder war unklar?', 'Was wünschst du dir?'],
+  game: ['Was hat gefallen?', 'Was ist passiert?', 'Was hätte passieren sollen?'],
+};
 
 /** Feedback form; sends to /api/feedback, which files a GitHub issue. */
-export function FeedbackForm({ where, context, defaultName = '', intro, onDone }: {
+export function FeedbackForm({ where, context, defaultName = '', intro, onDone, game, variant = 'general' }: {
   where: string; context?: Ctx; defaultName?: string; intro?: string; onDone?: () => void;
+  /** Called when sending, so the snapshot shows the position at that moment. */
+  game?: () => GameSnapshot; variant?: Variant;
 }) {
+  const [l1, l2, l3] = LABELS[variant];
   const [rating, setRating] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const [liked, setLiked] = useState('');
@@ -24,7 +35,7 @@ export function FeedbackForm({ where, context, defaultName = '', intro, onDone }
     try {
       const res = await fetch('/api/feedback', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rating, liked, disliked, wish, name, where, website, context: { Seite: location.pathname, ...context } }),
+        body: JSON.stringify({ rating, liked, disliked, wish, name, where, website, context: { Seite: location.pathname, ...context }, game: game?.() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Das hat nicht geklappt.');
@@ -59,9 +70,16 @@ export function FeedbackForm({ where, context, defaultName = '', intro, onDone }
           ))}
         </div>
       </div>
-      <Field label="Was hat gefallen?" value={liked} set={setLiked} />
-      <Field label="Was hat genervt oder war unklar?" value={disliked} set={setDisliked} />
-      <Field label="Was wünschst du dir?" value={wish} set={setWish} placeholder="Neue Funktionen, Regeln, Ideen …" />
+      {variant === 'game' ? <>
+        <Field label={l2} value={disliked} set={setDisliked} placeholder="Zum Beispiel: Der Stein durfte nach dem Achterdeck weiterschlagen." />
+        <Field label={l3} value={wish} set={setWish} placeholder="Wie lautet die Regel aus deiner Sicht?" />
+        <Field label={l1} value={liked} set={setLiked} />
+      </> : <>
+        <Field label={l1} value={liked} set={setLiked} />
+        <Field label={l2} value={disliked} set={setDisliked} />
+        <Field label={l3} value={wish} set={setWish} placeholder="Neue Funktionen, Regeln, Ideen …" />
+      </>}
+      {game && <span className="rule" style={{ fontSize: 12 }}>Die aktuelle Stellung und die komplette Zughistorie werden automatisch mitgeschickt.</span>}
       <label className="stack" style={{ gap: 4 }}>
         <span className="lbl">Name (freiwillig)</span>
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Damit wir nachfragen können" />
@@ -88,8 +106,9 @@ function Field({ label, value, set, placeholder }: { label: string; value: strin
 }
 
 /** Button that opens the form in a dialog. */
-export function FeedbackButton({ where, context, defaultName, label = 'Feedback geben', className }: {
-  where: string; context?: Ctx; defaultName?: string; label?: string; className?: string;
+export function FeedbackButton({ where, context, defaultName, label = 'Feedback geben', className, style, game, variant, title = 'Feedback an die Werft', intro }: {
+  where: string; context?: Ctx; defaultName?: string; label?: ReactNode; className?: string; style?: CSSProperties;
+  game?: () => GameSnapshot; variant?: Variant; title?: string; intro?: string;
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -100,14 +119,14 @@ export function FeedbackButton({ where, context, defaultName, label = 'Feedback 
   }, [open]);
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>{label}</button>
+      <button type="button" className={className} style={style} onClick={() => setOpen(true)}>{label}</button>
       {open && (
         <div role="presentation" onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'grid', placeItems: 'center', padding: 16, background: 'rgba(8,12,18,.6)' }}>
           <div role="dialog" aria-label="Feedback" className="card stack" onClick={(e) => e.stopPropagation()}
             style={{ width: 'min(480px, 100%)', maxHeight: '100%', overflowY: 'auto', gap: 12, background: 'var(--hull)', borderColor: 'var(--brass)' }}>
-            <h2 style={{ margin: 0 }}>Feedback an die Werft</h2>
-            <FeedbackForm where={where} context={context} defaultName={defaultName} onDone={() => setOpen(false)}
-              intro="Was läuft gut, was nervt, was fehlt? Jede Rückmeldung hilft, Deckmate besser zu machen." />
+            <h2 style={{ margin: 0 }}>{title}</h2>
+            <FeedbackForm where={where} context={context} defaultName={defaultName} onDone={() => setOpen(false)} game={game} variant={variant}
+              intro={intro ?? 'Was läuft gut, was nervt, was fehlt? Jede Rückmeldung hilft, Deckmate besser zu machen.'} />
           </div>
         </div>
       )}

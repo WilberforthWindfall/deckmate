@@ -40,21 +40,23 @@ export interface GameState {
   /** Before the start of a campaign battle: pieces each side still has to take off the board. */
   deploy?: Partial<Record<Side, Partial<Record<PieceType, number>>>>;
   log: string[];
+  /** Complete protocol of the game (log is capped at 30 lines), used for feedback and replays. */
+  record?: string[];
 }
 
 export const SIDE_NAME: Record<Side, string> = { M: 'Mannschaft', O: 'Offiziere' };
 export const opp = (s: Side): Side => (s === 'M' ? 'O' : 'M');
 
 export const PIECES: Record<PieceType, { n: string; s: Side; r: string }> = {
-  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Die Serie wird zu Ende geschlagen.' },
+  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
   FL: { n: 'First Leutnant', s: 'O', r: 'Zieht wie der König im Schach. Wird er geschlagen, gewinnt die Mannschaft.' },
   CAP: { n: 'Captain', s: 'O', r: 'Zieht wie die Dame im Schach.' },
   KAN: { n: 'Kanonade', s: 'O', r: 'Zieht wie der Turm im Schach.' },
   KAP: { n: 'Kaplan', s: 'O', r: 'Zieht wie der Läufer im Schach.' },
   MAR: { n: 'Marine', s: 'O', r: 'Zieht wie der Springer im Schach und überspringt Figuren.' },
   INF: { n: 'Infanterist', s: 'O', r: 'Zieht wie der Bauer im Schach: 1 Feld vorwärts, aus der Startreihe wahlweise 2. Schlägt 1 Feld diagonal vorwärts. Auf Reihe 1 wird er umgewandelt.' },
-  PT: { n: 'Beförderter Stein (Turm)', s: 'M', r: 'Entsteht bei Pasch. Zieht und schlägt wie ein Turm.' },
-  PL: { n: 'Beförderter Stein (Läufer)', s: 'M', r: 'Entsteht ohne Pasch. Zieht und schlägt wie ein Läufer.' },
+  PT: { n: 'Beförderter Stein (Turm)', s: 'M', r: 'Entsteht bei Pasch auf dem Achterdeck. Zieht und schlägt wie ein Turm. Gilt als Offizier und hat Schlagpflicht.' },
+  PL: { n: 'Beförderter Stein (Läufer)', s: 'M', r: 'Entsteht ohne Pasch auf dem Achterdeck. Zieht und schlägt wie ein Läufer. Gilt als Offizier und hat Schlagpflicht.' },
 };
 
 export const CARDS: Record<CardKey, { t: string; sym: string; e: string; M: string; O: string }> = {
@@ -114,6 +116,8 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
   if (p.t === 'stone') {
     const first = [[-1, 0], [-1, -1], [-1, 1], ...(options.sideFirst ? [[0, -1], [0, 1]] : [])];
     const dfs = (cr: number, cc: number, jumped: number[], path: number[], isFirst: boolean) => {
+      // Reaching the Achterdeck (rank 8) ends the series at once: the stone is promoted there (beta feedback 30.10.2026).
+      if (jumped.length && cr === 0) { out.push({ from, to: idx(cr, cc), cap: jumped, path }); return; }
       let ext = false;
       for (const [dr, dc] of isFirst ? first : D8) {
         const mr = cr + dr, mc = cc + dc, lr = cr + 2 * dr, lc = cc + 2 * dc;
@@ -166,10 +170,16 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
   return out;
 }
 
-/** Only the officers are obliged to capture. The crew may always choose a quiet move (fixed rule since 19.10.2026). */
+/** Promoted crew pieces count as officers (rule clarification 30.10.2026). */
+export const PROMOTED: PieceType[] = ['PT', 'PL'];
+
+/**
+ * Officers are obliged to capture. Plain crew stones are not (fixed rule since 19.10.2026), but a stone promoted on the
+ * Achterdeck becomes an officer and from then on must capture: if it can capture, the crew's move must be a capture.
+ */
 export function mustCapture(board: Square[], side: Side, options: Options): boolean {
-  if (side === 'M') return false;
-  return board.some((p, i) => p && p.s === side && rawMoves(board, i, options).some((m) => m.cap.length));
+  return board.some((p, i) => p && p.s === side && (side === 'O' || PROMOTED.includes(p.t))
+    && rawMoves(board, i, options).some((m) => m.cap.length));
 }
 
 /** Legal moves for a piece. With `free` the turn is ignored (test scenes); card effects still apply to the side to move. */
@@ -211,7 +221,10 @@ export function winnerOf(board: Square[]): Side | null {
 }
 
 const clone = (st: GameState): GameState => JSON.parse(JSON.stringify(st));
-const pushLog = (st: GameState, line: string) => { st.log = [line, ...st.log].slice(0, 30); };
+const pushLog = (st: GameState, line: string) => {
+  st.log = [line, ...st.log].slice(0, 30);
+  st.record = [...(st.record ?? []), line].slice(-600);
+};
 
 export function shuffle<T>(arr: T[], rng: Rng): T[] {
   const a = [...arr];
@@ -227,6 +240,7 @@ export function newGame(rng: Rng, options: Options = DEFAULT_OPTIONS): GameState
     hands: { M: deck.slice(0, 2), O: deck.slice(2, 4) }, captured: { M: [], O: [] },
     fx: { skip: { M: 0, O: 0 }, noPflicht: false, retreat: false, played: false, shieldPick: false, moved: false },
     pending: null, options: { ...options }, lastMove: null, lastDice: null, log: ['Neue Partie. Karten verteilt.'],
+    record: ['Neue Partie. Karten verteilt.'],
   };
 }
 

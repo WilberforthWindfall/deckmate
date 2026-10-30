@@ -185,3 +185,12 @@ details.fold[open] { gap: 10px; }
 .start-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr); gap: 22px; align-items: start; }
 .start-grid > section:last-child { position: sticky; top: 0; }
 @media (max-width: 900px) { .start-grid { grid-template-columns: 1fr; } .start-grid > section:last-child { position: static; } }
+
+/* In-game feedback: always visible, brass, top right of the table */
+.feedback-fab { position: absolute; top: 14px; right: max(16px, env(safe-area-inset-right, 0px)); z-index: 5; }
+.feedback-fab button { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brass) 30%, transparent), 0 6px 18px rgba(0,0,0,.35); font-size: 14px; padding: 8px 14px; }
+.feedback-fab button span { margin-right: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  .feedback-fab button { animation: fab-glow 2.6s ease-in-out 2; }
+  @keyframes fab-glow { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brass) 40%, transparent), 0 6px 18px rgba(0,0,0,.35); } }
+}
