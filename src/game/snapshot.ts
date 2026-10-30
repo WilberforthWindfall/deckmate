@@ -3,7 +3,7 @@ import { SIDE_NAME, sqName, type GameState, type PieceType } from './rules.ts';
 
 /** Crew in lower case, officers in upper case. */
 const CODE: Record<PieceType, string> = { stone: 's', PT: 't', PL: 'l', FL: 'F', CAP: 'C', KAN: 'K', KAP: 'P', MAR: 'M', INF: 'I' };
-export const LEGEND = 'Mannschaft klein: s Stein, t befördert (Turm), l befördert (Läufer) · Offiziere groß: F First Leutnant, C Captain, K Kanonade, P Kaplan, M Marine, I Infanterist · * unter Ehrenwache';
+export const LEGEND = 'Mannschaft klein: s Stein, t befördert (Turm), l befördert (Läufer) · Offiziere groß: F First Leutnant, C Captain, K Carronade, P Kaplan, M Marine, I Fähnrich · * unter Ehrenwache';
 
 export function boardText(st: GameState): string {
   const rows: string[] = [];

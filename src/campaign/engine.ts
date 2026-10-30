@@ -11,7 +11,7 @@ import {
 
 export type Spec = Army['spec'];
 export type SpecKey = keyof Spec;
-export const SPEC_NAME: Record<SpecKey, string> = { CAP: 'Captain', KAP: 'Kaplan', KAN: 'Kanonade', MAR: 'Marine' };
+export const SPEC_NAME: Record<SpecKey, string> = { CAP: 'Captain', KAP: 'Kaplan', KAN: 'Carronade', MAR: 'Marine' };
 export const SPEC_MAX: Spec = { CAP: 1, KAP: 2, KAN: 2, MAR: 2 };
 const SPECS = Object.keys(SPEC_NAME) as SpecKey[];
 
@@ -20,7 +20,7 @@ export type BuildingKey = 'kapelle' | 'giesserei' | 'kaserne' | 'messe' | 'markt
 export type Branch = 'wirtschaft' | 'militaer' | 'glaube' | 'verteidigung';
 export const BUILDINGS: Record<BuildingKey, { n: string; art: string; cost: number; effect: string; unlocks?: SpecKey; branch: Branch }> = {
   kapelle: { n: 'Kapelle', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Kapläne ausbilden.', unlocks: 'KAP', branch: 'glaube' },
-  giesserei: { n: 'Gießerei', art: 'eine', cost: 5, effect: 'Städte im Umkreis von 2 Feldern können Kanonaden ausbilden.', unlocks: 'KAN', branch: 'militaer' },
+  giesserei: { n: 'Gießerei', art: 'eine', cost: 5, effect: 'Städte im Umkreis von 2 Feldern können Carronaden ausbilden.', unlocks: 'KAN', branch: 'militaer' },
   kaserne: { n: 'Kaserne', art: 'eine', cost: 4, effect: 'Städte im Umkreis von 2 Feldern können Marines ausbilden und rekrutieren 1 Figur mehr.', unlocks: 'MAR', branch: 'militaer' },
   messe: { n: 'Offiziersmesse', art: 'eine', cost: 6, effect: 'Städte im Umkreis von 2 Feldern können einen Captain ausbilden.', unlocks: 'CAP', branch: 'militaer' },
   markt: { n: 'Markt', art: 'einen', cost: 5, effect: '+1 Gold pro Runde und ein Händler, der zur nächsten eigenen Stadt zieht und dort Gold bringt.', branch: 'wirtschaft' },

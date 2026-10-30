@@ -9,7 +9,7 @@ export const MAX_STONES = 16;
 
 export const TERRAIN: Record<Terrain, { n: string; rule: string }> = {
   ebene: { n: 'Ebene', rule: 'Keine Besonderheit.' },
-  fluss: { n: 'Flussland', rule: 'Furt: Infanteristen haben keinen Doppelschritt.' },
+  fluss: { n: 'Flussland', rule: 'Furt: Fähnriche haben keinen Doppelschritt.' },
   gebirge: { n: 'Gebirge', rule: 'Der Verteidiger erhält eine zusätzliche Karte.' },
   huegel: { n: 'Hügelland', rule: 'Wer den Hügel hält, beginnt: Die Mannschaft (Verteidiger) zieht zuerst.' },
 };
@@ -71,13 +71,13 @@ export function removePiece(prev: GameState, at: number): GameState {
   return st;
 }
 
-/** Remaining removals per side as readable text, e.g. "1 Kanonade, 2 Infanteristen". */
+/** Remaining removals per side as readable text, e.g. "1 Carronade, 2 Fähnriche". */
 export function deployText(st: GameState, side: Side): string {
   const need = st.deploy?.[side];
   if (!need) return '';
   const NAMES: Partial<Record<PieceType, [string, string]>> = {
-    CAP: ['Captain', 'Captains'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Kanonade', 'Kanonaden'], MAR: ['Marine', 'Marines'],
-    INF: ['Infanterist', 'Infanteristen'], stone: ['Stein', 'Steine'],
+    CAP: ['Captain', 'Captains'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Carronade', 'Carronaden'], MAR: ['Marine', 'Marines'],
+    INF: ['Fähnrich', 'Fähnriche'], stone: ['Stein', 'Steine'],
   };
   return Object.entries(need).map(([t, n]) => `${n} ${NAMES[t as PieceType]![n === 1 ? 0 : 1]}`).join(', ');
 }

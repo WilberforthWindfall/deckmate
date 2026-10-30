@@ -223,7 +223,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
                 : <div className="warn" style={{ marginTop: 8 }}>Die Mannschaft würfelt.</div>}
             </> : <>
               <h2>Umwandlung auf {sqName(st.pending.at)}</h2>
-              <div className="rule">Der Infanterist hat Reihe 1 erreicht.</div>
+              <div className="rule">Der Fähnrich hat Reihe 1 erreicht.</div>
               {controls('O') ? <div className="row" style={{ marginTop: 10 }}>{(['CAP', 'KAN', 'KAP', 'MAR'] as PieceType[]).map((t) =>
                 <button key={t} type="button" disabled={sending} onClick={() => send({ type: 'convert', t })}>{PIECES[t].n}</button>)}</div>
                 : <div className="warn" style={{ marginTop: 8 }}>Die Offiziere wählen die neue Figur.</div>}

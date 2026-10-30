@@ -14,7 +14,7 @@ const PRESET: BattleInfo = {
   defender: { house: 'Kerrow', size: 10, spec: { CAP: 0, KAP: 0, KAN: 0, MAR: 0 } },
 };
 
-const SPEC: [keyof Army['spec'], string][] = [['CAP', 'Captain'], ['KAP', 'Kapläne'], ['KAN', 'Kanonaden'], ['MAR', 'Marines']];
+const SPEC: [keyof Army['spec'], string][] = [['CAP', 'Captain'], ['KAP', 'Kapläne'], ['KAN', 'Carronaden'], ['MAR', 'Marines']];
 
 export default function BattleTest() {
   const [info, setInfo] = useState<BattleInfo>(PRESET);
@@ -87,7 +87,7 @@ export default function BattleTest() {
                   <input type="number" min={0} max={MAX_OFFICERS[k]} value={info.attacker.spec[k]} onChange={(e) => setAtt({ spec: { ...info.attacker.spec, [k]: Number(e.target.value) } })} /></label>
               ))}
             </div>
-            <div className="rule">Auf dem Brett: First Leutnant, {lineup.CAP} Captain, {lineup.KAP} Kapläne, {lineup.KAN} Kanonaden, {lineup.MAR} Marines, {lineup.INF} Infanteristen · {officerCount} Figuren</div>
+            <div className="rule">Auf dem Brett: First Leutnant, {lineup.CAP} Captain, {lineup.KAP} Kapläne, {lineup.KAN} Carronaden, {lineup.MAR} Marines, {lineup.INF} Fähnriche · {officerCount} Figuren</div>
           </div>
           <div className="card stack" style={{ flex: '1 1 300px' }}>
             <h2>Verteidiger · Mannschaft</h2>

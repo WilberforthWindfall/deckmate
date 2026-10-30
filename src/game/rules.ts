@@ -16,7 +16,7 @@ export interface BattleInfo { province: string; terrain: Terrain; attacker: Army
 export interface Move { from: number; to: number; path: number[]; cap: number[]; retreat?: boolean }
 export interface LastMove extends Move { t: PieceType; s: Side }
 
-export interface Options { mPflicht: boolean; sideFirst: boolean; /** Furt (Flussgelände): Infanteristen ohne Doppelschritt. */ furt?: boolean }
+export interface Options { mPflicht: boolean; sideFirst: boolean; /** Furt (Flussgelände): Fähnriche ohne Doppelschritt. */ furt?: boolean }
 
 export interface GameState {
   v: number;
@@ -51,10 +51,10 @@ export const PIECES: Record<PieceType, { n: string; s: Side; r: string }> = {
   stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
   FL: { n: 'First Leutnant', s: 'O', r: 'Zieht wie der König im Schach. Wird er geschlagen, gewinnt die Mannschaft.' },
   CAP: { n: 'Captain', s: 'O', r: 'Zieht wie die Dame im Schach.' },
-  KAN: { n: 'Kanonade', s: 'O', r: 'Zieht wie der Turm im Schach.' },
+  KAN: { n: 'Carronade', s: 'O', r: 'Zieht wie der Turm im Schach.' },
   KAP: { n: 'Kaplan', s: 'O', r: 'Zieht wie der Läufer im Schach.' },
   MAR: { n: 'Marine', s: 'O', r: 'Zieht wie der Springer im Schach und überspringt Figuren.' },
-  INF: { n: 'Infanterist', s: 'O', r: 'Zieht wie der Bauer im Schach: 1 Feld vorwärts, aus der Startreihe wahlweise 2. Schlägt 1 Feld diagonal vorwärts. Auf Reihe 1 wird er umgewandelt.' },
+  INF: { n: 'Fähnrich', s: 'O', r: 'Zieht wie der Bauer im Schach: 1 Feld vorwärts, aus der Startreihe wahlweise 2. Schlägt 1 Feld diagonal vorwärts. Auf Reihe 1 wird er umgewandelt.' },
   PT: { n: 'Beförderter Stein (Turm)', s: 'M', r: 'Entsteht bei Pasch auf dem Achterdeck. Zieht und schlägt wie ein Turm. Gilt als Offizier und hat Schlagpflicht.' },
   PL: { n: 'Beförderter Stein (Läufer)', s: 'M', r: 'Entsteht ohne Pasch auf dem Achterdeck. Zieht und schlägt wie ein Läufer. Gilt als Offizier und hat Schlagpflicht.' },
 };
@@ -337,7 +337,7 @@ export function resolveConversion(prev: GameState, t: PieceType): GameState {
   if (!['CAP', 'KAN', 'KAP', 'MAR'].includes(t)) throw new Error('Ungültige Figur.');
   const st = clone(prev);
   st.board[st.pending!.at] = { t, s: 'O' };
-  pushLog(st, `Infanterist wird ${PIECES[t].n}`);
+  pushLog(st, `Fähnrich wird ${PIECES[t].n}`);
   st.pending = null; st.lastMove = null;
   afterMove(st); st.v++;
   return st;

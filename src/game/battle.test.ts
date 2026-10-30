@@ -13,7 +13,7 @@ test('Aufstellung: Heer bestimmt, welche Figuren fehlen', () => {
   assert.equal(crewLineup(ker), 10);
   const st = newBattle(info(), Math.random);
   assert.deepEqual(st.deploy, { O: { KAN: 1, MAR: 1, INF: 2 }, M: { stone: 6 } });
-  assert.equal(deployText(st, 'O'), '1 Kanonade, 1 Marine, 2 Infanteristen');
+  assert.equal(deployText(st, 'O'), '1 Carronade, 1 Marine, 2 Fähnriche');
   assert.throws(() => startGame(st, 'M'), /Erst aufstellen/);
 });
 
@@ -29,7 +29,7 @@ test('Aufstellung: jede Seite wählt selbst, der First Leutnant bleibt', () => {
   assert.equal(st.phase, 'play');
 });
 
-test('Furt: Infanteristen ohne Doppelschritt, in der Ebene mit', () => {
+test('Furt: Fähnriche ohne Doppelschritt, in der Ebene mit', () => {
   const ford = startGame(newBattle({ ...info(), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random), 'O');
   assert.deepEqual(legalMoves(ford, f('d7')).map((m) => sqName(m.to)), ['d6']);
   const plain = startGame(newBattle({ ...info('ebene'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random), 'O');

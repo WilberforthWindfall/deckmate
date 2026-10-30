@@ -80,7 +80,7 @@ test('Beförderung: Pasch ergibt Turm, sonst Läufer, danach Seitenwechsel', () 
   assert.equal(resolvePromotionRoll(moved, [2, 5]).board[f('a8')]?.t, 'PL');
 });
 
-test('Infanterist: Doppelschritt aus der Startreihe und Umwandlung auf Reihe 1', () => {
+test('Fähnrich: Doppelschritt aus der Startreihe und Umwandlung auf Reihe 1', () => {
   const st = scene([['d7', 'INF'], ['e8', 'FL'], ['h1', 'stone']]);
   st.turn = 'O';
   assert.deepEqual(targets(st, 'd7'), ['d5', 'd6']);
