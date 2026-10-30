@@ -75,11 +75,20 @@ export function removePiece(prev: GameState, at: number): GameState {
 export function deployText(st: GameState, side: Side): string {
   const need = st.deploy?.[side];
   if (!need) return '';
-  const NAMES: Partial<Record<PieceType, [string, string]>> = {
-    CAP: ['Captain', 'Captains'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Carronade', 'Carronaden'], MAR: ['Marine', 'Marines'],
-    INF: ['Fähnrich', 'Fähnriche'], stone: ['Stein', 'Steine'],
-  };
-  return Object.entries(need).map(([t, n]) => `${n} ${NAMES[t as PieceType]![n === 1 ? 0 : 1]}`).join(', ');
+  return Object.entries(need).map(([t, n]) => `${n} ${PLURAL[t as PieceType]![n === 1 ? 0 : 1]}`).join(', ');
+}
+
+export const PLURAL: Record<PieceType, [string, string]> = {
+  CAP: ['Captain', 'Captains'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Carronade', 'Carronaden'], MAR: ['Marine', 'Marines'],
+  INF: ['Fähnrich', 'Fähnriche'], stone: ['Stein', 'Steine'], FL: ['First Leutnant', 'First Leutnants'],
+  PT: ['beförderter Turm', 'beförderte Türme'], PL: ['beförderter Läufer', 'beförderte Läufer'],
+};
+
+/** Captured pieces of one side as text, e.g. "3 Steine, 1 beförderter Turm". */
+export function capturedText(list: PieceType[]): string {
+  const n = new Map<PieceType, number>();
+  for (const t of list) n.set(t, (n.get(t) ?? 0) + 1);
+  return [...n].map(([t, k]) => `${k} ${PLURAL[t][k === 1 ? 0 : 1]}`).join(', ');
 }
 
 export interface BattleResult {

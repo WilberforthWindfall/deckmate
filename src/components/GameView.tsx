@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Table3D } from '../three/Table3D.ts';
 import type { Action } from '../game/actions.ts';
-import { TERRAIN, battleResult, deployText } from '../game/battle.ts';
+import { TERRAIN, battleResult, capturedText, deployText } from '../game/battle.ts';
 import { FeedbackButton } from './Feedback.tsx';
 import { gameSnapshot } from '../game/snapshot.ts';
 import {
@@ -38,6 +38,13 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   const [sending, setSending] = useState(false);
 
   const controls = (s: Side) => freeMode || mySide === null || mySide === s;
+
+  // A card played by the other side is shown large over the board until it is clicked away (beta feedback #26).
+  const lc = st.lastCard;
+  const lcKey = lc ? `${location.pathname}|${lc.side}|${lc.v}` : '';
+  const [seenCard, setSeenCard] = useState<string>(() => { try { return sessionStorage.getItem('deckmate-seen-card') ?? ''; } catch { return ''; } });
+  const spotlight = !freeMode && lc && (mySide === null || lc.side !== mySide) && lc.moveNo >= st.moveNo - 1 && seenCard !== lcKey ? lc : null;
+  const dismissCard = () => { setSeenCard(lcKey); try { sessionStorage.setItem('deckmate-seen-card', lcKey); } catch { /* private mode */ } };
 
   const pickable = st.phase === 'setup' && st.deploy
     ? st.board.flatMap((q, i) => (q && controls(q.s) && (st.deploy?.[q.s]?.[q.t] ?? 0) > 0 ? [i] : []))
@@ -168,6 +175,21 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Ehrenwache: Tippe jetzt eine eigene Figur an. Sie wird geschützt, danach ziehst du wie gewohnt.</div>
         )}
         {waiting && <div className="overlay"><div className="dialog">{waiting}</div></div>}
+        {!waiting && spotlight && (
+          <div className="overlay card-spot" role="dialog" aria-modal="true" aria-label={`Karte ausgespielt: ${CARDS[spotlight.key].t}`}>
+            <div className="spot-wrap">
+              <div className="spot-head">{mySide !== null && names?.[spotlight.side] ? `${names[spotlight.side]} spielt` : spotlight.side === 'M' ? 'Die Mannschaft spielt' : 'Die Offiziere spielen'} eine Karte</div>
+              <div className={`spot-card ${spotlight.side}`}>
+                <div className="spot-side">{spotlight.side === 'M' ? 'Mannschaft' : 'Offiziere'}</div>
+                <div className="spot-sym" aria-hidden="true">{CARDS[spotlight.key].sym}{'\uFE0E'}</div>
+                <h2>{CARDS[spotlight.key].t}</h2>
+                <p className="spot-story">{CARDS[spotlight.key][spotlight.side]}</p>
+                <p className="spot-effect">{CARDS[spotlight.key].e}</p>
+              </div>
+              <button type="button" className="primary" autoFocus onClick={dismissCard}>Verstanden</button>
+            </div>
+          </div>
+        )}
         {!waiting && !freeMode && st.phase === 'setup' && st.deploy && (
           <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Aufstellung: Tippe die Figuren an, die deinem Heer fehlen. Ihre Felder bleiben in der Schlacht leer.</div>
         )}
@@ -314,6 +336,12 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
         </details>
         {footer}
         <div className="stack" style={{ gap: 6 }}>
+          {(st.captured?.M?.length || st.captured?.O?.length) ? (
+            <div className="rule" style={{ fontSize: 12, marginBottom: 6 }}>
+              <div><b>Geschlagen, Mannschaft:</b> {capturedText(st.captured.M) || '–'}</div>
+              <div><b>Geschlagen, Offiziere:</b> {capturedText(st.captured.O) || '–'}</div>
+            </div>
+          ) : null}
           <div className="lbl">Logbuch</div>
           <div className="log">{st.log.length ? st.log.slice(0, 8).map((l, i) => <div key={i}>{l}</div>) : <div>Noch keine Züge.</div>}</div>
         </div>
