@@ -13,7 +13,9 @@ export interface BattleInfo { province: string; terrain: Terrain; attacker: Army
   /** Landscape of the campaign hex (A, W, S, G, F, K, H) – only changes how the board looks. */
   land?: string }
 
-export interface Move { from: number; to: number; path: number[]; cap: number[]; retreat?: boolean }
+export interface Move { from: number; to: number; path: number[]; cap: number[]; retreat?: boolean;
+  /** Castling (officers only): square of the Carronade that jumps to the other side of the First Leutnant. */
+  castle?: { rookFrom: number; rookTo: number } }
 export interface LastMove extends Move { t: PieceType; s: Side }
 
 export interface Options { mPflicht: boolean; sideFirst: boolean; /** Furt (Flussgelände): Fähnriche ohne Doppelschritt. */ furt?: boolean }
@@ -42,6 +44,8 @@ export interface GameState {
   log: string[];
   /** Complete protocol of the game (log is capped at 30 lines), used for feedback and replays. */
   record?: string[];
+  /** Officers' castling: which home pieces have already moved (or been captured). Missing = nothing has moved yet. */
+  castleLost?: { FL?: true; a?: true; h?: true };
   /** Last card played, so the other side can be shown it prominently (beta feedback #26). */
   lastCard?: { side: Side; key: CardKey; moveNo: number; v: number } | null;
 }
@@ -51,7 +55,7 @@ export const opp = (s: Side): Side => (s === 'M' ? 'O' : 'M');
 
 export const PIECES: Record<PieceType, { n: string; s: Side; r: string }> = {
   stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Die Serie darf nach jedem Sprung beendet werden. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
-  FL: { n: 'First Leutnant', s: 'O', r: 'Zieht wie der König im Schach. Wird er geschlagen, gewinnt die Mannschaft.' },
+  FL: { n: 'First Leutnant', s: 'O', r: 'Zieht wie der König im Schach, auch die Rochade mit einer Carronade in der Ecke (beide noch nicht bewegt, Felder dazwischen frei). Wird er geschlagen, gewinnt die Mannschaft.' },
   CAP: { n: 'Captain', s: 'O', r: 'Zieht wie die Dame im Schach.' },
   KAN: { n: 'Carronade', s: 'O', r: 'Zieht wie der Turm im Schach.' },
   KAP: { n: 'Kaplan', s: 'O', r: 'Zieht wie der Läufer im Schach.' },
@@ -203,10 +207,34 @@ export function legalMoves(st: GameState, from: number, free = false): Move[] {
       if (inB(rr, cc) && !st.board[i] && !mv.some((m) => m.to === i)) mv.push({ from, to: i, cap: [], path: [i], retreat: true });
     }
   }
+  if (p.t === 'FL' && own && !st.fx.retreat) mv.push(...castleMoves(st, from));
   if (calmed(st, p.s)) return mv.filter((m) => !m.cap.length);
   const exempt = own && (st.fx.noPflicht || st.fx.retreat);
   if (!exempt && mustCapture(st.board, p.s, st.options)) mv = mv.filter((m) => m.cap.length);
   return mv;
+}
+
+/**
+ * Castling for the officers, as in chess: First Leutnant (e8) and the Carronade in the corner (a8 / h8) have not moved,
+ * the squares between them are empty. Deckmate has no check, so the "not through check" conditions do not apply.
+ * A castling move is no capture, so the capture obligation rules it out whenever an officer can capture.
+ */
+export function castleMoves(st: GameState, from: number): Move[] {
+  const p = st.board[from];
+  const lost = st.castleLost ?? {};
+  if (!p || p.t !== 'FL' || p.s !== 'O' || from !== idx(0, 4) || lost.FL) return [];
+  const out: Move[] = [];
+  const sides = [
+    { key: 'h' as const, rook: idx(0, 7), empty: [5, 6], to: 6, rookTo: 5 },
+    { key: 'a' as const, rook: idx(0, 0), empty: [1, 2, 3], to: 2, rookTo: 3 },
+  ];
+  for (const d of sides) {
+    const r = st.board[d.rook];
+    if (lost[d.key] || !r || r.t !== 'KAN' || r.s !== 'O') continue;
+    if (d.empty.some((c) => st.board[idx(0, c)])) continue;
+    out.push({ from, to: idx(0, d.to), cap: [], path: [idx(0, d.to)], castle: { rookFrom: d.rook, rookTo: idx(0, d.rookTo) } });
+  }
+  return out;
 }
 
 /**
@@ -315,9 +343,24 @@ export function applyMove(prev: GameState, from: number, to: number, path?: numb
   st.board[from] = null;
   for (const ci of m.cap) { const q = st.board[ci]; if (q) st.captured[q.s].push(q.t); st.board[ci] = null; }
   st.board[to] = p;
+  // Castling rights are lost as soon as a home piece moves or is captured (or anything lands there by capture).
+  const lost = { ...(st.castleLost ?? {}) };
+  for (const sq of [from, ...m.cap]) {
+    if (sq === idx(0, 4)) lost.FL = true;
+    if (sq === idx(0, 0)) lost.a = true;
+    if (sq === idx(0, 7)) lost.h = true;
+  }
+  if (m.castle) {
+    st.board[m.castle.rookTo] = st.board[m.castle.rookFrom];
+    st.board[m.castle.rookFrom] = null;
+    lost.FL = true;
+  }
+  if (lost.FL || lost.a || lost.h) st.castleLost = lost;
   st.lastMove = { ...m, t: p.t, s: p.s };
   st.lastDice = null;
-  pushLog(st, `${st.moveNo}. ${PIECES[p.t].n} ${sqName(from)} → ${sqName(to)}${m.cap.length ? ` · schlägt ${m.cap.map(sqName).join(', ')}` : ''}`);
+  pushLog(st, m.castle
+    ? `${st.moveNo}. Rochade ${m.castle.rookFrom === idx(0, 7) ? 'kurz' : 'lang'}: First Leutnant ${sqName(from)} → ${sqName(to)}, Carronade ${sqName(m.castle.rookFrom)} → ${sqName(m.castle.rookTo)}`
+    : `${st.moveNo}. ${PIECES[p.t].n} ${sqName(from)} → ${sqName(to)}${m.cap.length ? ` · schlägt ${m.cap.map(sqName).join(', ')}` : ''}`);
   const [tr] = rc(to);
   if (p.t === 'stone' && tr === 0 && !winnerOf(st.board)) st.pending = { kind: 'promoM', at: to };
   else if (p.t === 'INF' && tr === 7 && !winnerOf(st.board)) st.pending = { kind: 'promoO', at: to };
