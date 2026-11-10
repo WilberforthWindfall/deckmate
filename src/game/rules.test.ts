@@ -283,3 +283,51 @@ test('Geschlagene Figuren als Text', async () => {
   assert.equal(capturedText(['stone', 'stone', 'PT']), '2 Steine, 1 beförderter Turm');
   assert.equal(capturedText([]), '');
 });
+
+test('Rochade: kurz und lang, wenn Leutnant und Carronade unbewegt und die Felder frei sind', () => {
+  const st = scene([['e8', 'FL'], ['a8', 'KAN'], ['h8', 'KAN'], ['e1', 'stone']]);
+  st.turn = 'O';
+  assert.deepEqual(targets(st, 'e8'), ['c8', 'd7', 'd8', 'e7', 'f7', 'f8', 'g8']);
+  const kurz = applyMove(st, f('e8'), f('g8'));
+  assert.equal(kurz.board[f('g8')]?.t, 'FL');
+  assert.equal(kurz.board[f('f8')]?.t, 'KAN');
+  assert.equal(kurz.board[f('h8')], null);
+  assert.equal(kurz.board[f('e8')], null);
+  const lang = applyMove(st, f('e8'), f('c8'));
+  assert.equal(lang.board[f('c8')]?.t, 'FL');
+  assert.equal(lang.board[f('d8')]?.t, 'KAN');
+  assert.equal(lang.board[f('a8')], null);
+  assert.equal(lang.turn, 'M');
+});
+
+test('Rochade: nicht mit besetzten Feldern dazwischen', () => {
+  const st = scene([['e8', 'FL'], ['a8', 'KAN'], ['h8', 'KAN'], ['b8', 'MAR'], ['f8', 'KAP'], ['e1', 'stone']]);
+  st.turn = 'O';
+  assert.ok(!targets(st, 'e8').includes('g8'));
+  assert.ok(!targets(st, 'e8').includes('c8'));
+});
+
+test('Rochade: Recht verfällt, wenn Leutnant oder Carronade gezogen haben', () => {
+  let st = scene([['e8', 'FL'], ['h8', 'KAN'], ['e1', 'stone'], ['a1', 'stone']]);
+  st.turn = 'O';
+  // Carronade zieht weg und zurück: kurze Rochade bleibt verwehrt.
+  st = applyMove(st, f('h8'), f('h7'));
+  st = applyMove(st, f('a1'), f('b2'));
+  st = applyMove(st, f('h7'), f('h8'));
+  st = applyMove(st, f('b2'), f('a3'));
+  assert.ok(!targets(st, 'e8').includes('g8'));
+  // Leutnant zieht weg und zurück: auch das verfällt.
+  let s2 = scene([['e8', 'FL'], ['h8', 'KAN'], ['e1', 'stone'], ['a1', 'stone']]);
+  s2.turn = 'O';
+  s2 = applyMove(s2, f('e8'), f('e7'));
+  s2 = applyMove(s2, f('a1'), f('b2'));
+  s2 = applyMove(s2, f('e7'), f('e8'));
+  s2 = applyMove(s2, f('b2'), f('a3'));
+  assert.ok(!targets(s2, 'e8').includes('g8'));
+});
+
+test('Rochade: gilt nicht als Schlag – bei Schlagpflicht nicht erlaubt', () => {
+  const st = scene([['e8', 'FL'], ['h8', 'KAN'], ['a4', 'KAP'], ['b3', 'stone'], ['e1', 'stone']]);
+  st.turn = 'O';
+  assert.deepEqual(targets(st, 'e8'), []);
+});
