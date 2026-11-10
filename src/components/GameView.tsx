@@ -5,7 +5,7 @@ import { TERRAIN, battleResult, capturedText, deployText } from '../game/battle.
 import { FeedbackButton } from './Feedback.tsx';
 import { gameSnapshot } from '../game/snapshot.ts';
 import {
-  CARDS, PIECES, SIDE_NAME, cardBlocker, legalMoves, sqName, type GameState, type Options, type PieceType, type Side,
+  CARDS, PIECES, SIDE_NAME, cardBlocker, legalMoves, sqName, type GameState, type Move, type Options, type PieceType, type Side,
 } from '../game/rules.ts';
 
 interface Props {
@@ -31,6 +31,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   const host = useRef<HTMLDivElement>(null);
   const table = useRef<Table3D | null>(null);
   const [sel, setSel] = useState<number | null>(null);
+  const [castleAsk, setCastleAsk] = useState<Move | null>(null);
   const [selCard, setSelCard] = useState<{ side: Side; index: number } | null>(null);
   const [follow, setFollow] = useState(mySide === null);
   const [toast, setToast] = useState('');
@@ -58,6 +59,10 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     return legalMoves(st, sel, !!freeMode);
   }, [st, sel, mySide, freeMode, sending]);
 
+  // Castling is offered via the Carronade (ring + question), not as extra target squares for the First Leutnant.
+  const castles = useMemo(() => moves.filter((m) => m.castle), [moves]);
+  const plainMoves = useMemo(() => moves.filter((m) => !m.castle), [moves]);
+
   async function send(a: Action) {
     setSending(true);
     try { await onAction(a); } catch (err) { setToast((err as Error).message || 'Das hat nicht geklappt.'); setTimeout(() => setToast(''), 3200); }
@@ -81,7 +86,12 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
       else { setToast(`Wähle eine Figur der ${SIDE_NAME[st.turn]} für die Ehrenwache.`); setTimeout(() => setToast(''), 2600); }
       return;
     }
-    const m = sel !== null ? moves.find((x) => x.to === i) : undefined;
+    if (sel !== null) {
+      const c = castles.find((x) => x.castle!.rookFrom === i);
+      if (c) { setCastleAsk(c); return; }
+    }
+    setCastleAsk(null);
+    const m = sel !== null ? plainMoves.find((x) => x.to === i) : undefined;
     if (m) { setSel(null); send({ type: 'move', from: m.from, to: m.to, path: m.path }); return; }
     setSel(st.board[i] ? i : null);
   };
@@ -99,17 +109,18 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
 
   useEffect(() => {
     table.current?.setLand(st.battle?.land);
-    table.current?.update({ state: st, selected: sel, moves, shieldPick: st.fx.shieldPick && controls(st.turn), selectedCard: selCard, pickable });
+    table.current?.update({ state: st, selected: sel, moves: plainMoves, shieldPick: st.fx.shieldPick && controls(st.turn), selectedCard: selCard, pickable: [...(pickable ?? []), ...castles.map((c) => c.castle!.rookFrom)] });
   });
 
   useEffect(() => { if (follow && st.phase === 'play') table.current?.face(st.turn); }, [st.turn, st.phase, follow]);
-  useEffect(() => { setSel(null); }, [st.v]);
+  useEffect(() => { setSel(null); setCastleAsk(null); }, [st.v]);
+  useEffect(() => { setCastleAsk(null); }, [sel]);
   useEffect(() => { if (st.phase !== 'over') setHideOver(false); }, [st.phase]);
   useEffect(() => { if (selCard && !st.hands[selCard.side][selCard.index]) setSelCard(null); }, [st.hands, selCard]);
 
   const p = sel !== null ? st.board[sel] : null;
-  const caps = moves.filter((m) => m.cap.length).length;
-  const mustCap = p && !freeMode && moves.length && moves.every((m) => m.cap.length) && caps > 0;
+  const caps = plainMoves.filter((m) => m.cap.length).length;
+  const mustCap = p && !freeMode && plainMoves.length && plainMoves.every((m) => m.cap.length) && caps > 0;
   const nameOf = (s: Side) => names?.[s] ?? SIDE_NAME[s];
   const myTurn = mySide === null || st.turn === mySide;
 
@@ -175,6 +186,18 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Ehrenwache: Tippe jetzt eine eigene Figur an. Sie wird geschützt, danach ziehst du wie gewohnt.</div>
         )}
         {waiting && <div className="overlay"><div className="dialog">{waiting}</div></div>}
+        {!waiting && castleAsk && sel !== null && (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label="Rochade">
+            <div className="dialog">
+              <h2>Rochade?</h2>
+              <p>First Leutnant {sqName(castleAsk.from)} → {sqName(castleAsk.to)}, Carronade {sqName(castleAsk.castle!.rookFrom)} → {sqName(castleAsk.castle!.rookTo)} ({castleAsk.castle!.rookFrom % 8 === 7 ? 'kurze' : 'lange'} Rochade). Das zählt als dein Zug.</p>
+              <div className="row">
+                <button type="button" className="primary" autoFocus disabled={sending} onClick={() => { const m = castleAsk; setCastleAsk(null); setSel(null); send({ type: 'move', from: m.from, to: m.to, path: m.path }); }}>Rochade</button>
+                <button type="button" className="ghost" onClick={() => setCastleAsk(null)}>Abbrechen</button>
+              </div>
+            </div>
+          </div>
+        )}
         {!waiting && spotlight && (
           <div className="overlay card-spot" role="dialog" aria-modal="true" aria-label={`Karte ausgespielt: ${CARDS[spotlight.key].t}`}>
             <div className="spot-wrap">
@@ -312,7 +335,8 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             <h2>{PIECES[p.t].n}</h2>
             <div className={`side ${p.s}`} style={{ marginBottom: 8 }}>{SIDE_NAME[p.s]} · Feld {sqName(sel!)}{p.shielded ? ' · unter Ehrenwache' : ''}</div>
             <div className="rule">{PIECES[p.t].r}</div>
-            <div className="count">{moves.length} legale Züge, davon {caps} Schläge</div>
+            <div className="count">{plainMoves.length} legale Züge, davon {caps} Schläge</div>
+            {castles.length > 0 && <div className="rule" style={{ marginTop: 8 }}>Rochade möglich: Klicke die markierte Carronade an.</div>}
             {!freeMode && st.phase === 'play' && p.s !== st.turn && <div className="warn" style={{ marginTop: 8 }}>Die {SIDE_NAME[p.s]} sind nicht am Zug.</div>}
             {!freeMode && mySide && p.s !== mySide && p.s === st.turn && <div className="warn" style={{ marginTop: 8 }}>Das ist eine Figur der Gegenseite.</div>}
             {mustCap ? <div className="warn" style={{ marginTop: 8 }}>Schlagpflicht aktiv.</div> : null}
