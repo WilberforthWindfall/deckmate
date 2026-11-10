@@ -331,3 +331,9 @@ test('Rochade: gilt nicht als Schlag – bei Schlagpflicht nicht erlaubt', () =>
   st.turn = 'O';
   assert.deepEqual(targets(st, 'e8'), []);
 });
+
+test('Rochade: in Testszenen (freier Modus) auch außerhalb des Zugrechts angezeigt', () => {
+  const st = scene([['e8', 'FL'], ['a8', 'KAN'], ['h8', 'KAN'], ['e1', 'stone']]);
+  const t = legalMoves(st, f('e8'), true).map((m) => sqName(m.to));
+  assert.ok(t.includes('g8') && t.includes('c8'));
+});

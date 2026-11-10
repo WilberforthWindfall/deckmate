@@ -207,7 +207,7 @@ export function legalMoves(st: GameState, from: number, free = false): Move[] {
       if (inB(rr, cc) && !st.board[i] && !mv.some((m) => m.to === i)) mv.push({ from, to: i, cap: [], path: [i], retreat: true });
     }
   }
-  if (p.t === 'FL' && own && !st.fx.retreat) mv.push(...castleMoves(st, from));
+  if (p.t === 'FL' && !retreat) mv.push(...castleMoves(st, from));
   if (calmed(st, p.s)) return mv.filter((m) => !m.cap.length);
   const exempt = own && (st.fx.noPflicht || st.fx.retreat);
   if (!exempt && mustCapture(st.board, p.s, st.options)) mv = mv.filter((m) => m.cap.length);
