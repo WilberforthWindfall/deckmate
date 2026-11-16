@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH } from 'node:crypto';
-import { checkSub, fieldPath, fromFsFields, payload, pending, subId, toFs, uidOf, vapidFrom, type Sub } from './notify.ts';
+import { checkSub, fieldPath, fromFsFields, payload, pending, subId, toFs, uidOf, vapidFrom, newVapidKey, type Sub } from './notify.ts';
 
 const game = (state: object) => ({ name: 'Testpartie', members: ['a', 'b'], players: { M: 'a', O: 'b' }, state });
 
@@ -55,6 +55,12 @@ test('VAPID: öffentlicher Schlüssel folgt aus dem privaten', () => {
   assert.equal(v?.pub, e.getPublicKey('base64url'));
   assert.equal(vapidFrom(''), null);
   assert.equal(vapidFrom('kaputt'), null);
+});
+
+test('VAPID: vorgeschlagener Schlüssel ist gültig und jedes Mal neu', () => {
+  const a = newVapidKey(), b = newVapidKey();
+  assert.ok(vapidFrom(a));
+  assert.notEqual(a, b);
 });
 
 test('Token: uid aus dem ID-Token, Unsinn ergibt null', () => {

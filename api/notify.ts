@@ -20,7 +20,7 @@
 //
 // Kept in one file on purpose: Vercel compiles each function on its own.
 
-import { createECDH, createHash } from 'node:crypto';
+import { createECDH, createHash, generateKeyPairSync } from 'node:crypto';
 
 // ---------------------------------------------------------------- who has to act (pure)
 
@@ -113,6 +113,9 @@ export function vapidFrom(priv: string | undefined) {
   } catch { return null; }
 }
 
+/** A fresh private VAPID key (32 bytes, base64url), offered by GET /api/notify as long as none is set. */
+export const newVapidKey = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }).d!;
+
 /** Reads the uid out of a Firebase ID token. Only trusted after Firestore has accepted the same token. */
 export function uidOf(idToken: string): string | null {
   try {
@@ -153,7 +156,7 @@ export const fieldPath = (...parts: string[]) => parts.map((p) => (/^[A-Za-z_][A
 type Env = Record<string, string | undefined>;
 declare const process: { env: Env } | undefined;
 const readEnv = (): Env => { try { return (typeof process !== 'undefined' && process.env) || {}; } catch { return {}; } };
-const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
+const json = (status: number, data: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...headers } });
 const appUrl = (env: Env, request: Request) => (env.APP_URL?.trim() || new URL(request.url).origin).replace(/\/+$/, '');
 const docUrl = (env: Env, path: string) => `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID?.trim() || 'deckmate-633e4'}/databases/(default)/documents/${path}`;
 
@@ -218,10 +221,19 @@ function tooMany(key: string, max = 30, now = Date.now()) {
 
 // ---------------------------------------------------------------- HTTP
 
-/** Whether push is set up, and the public VAPID key the browser needs to subscribe. */
+/**
+ * Whether push is set up, and the public VAPID key the browser needs to subscribe. As long as no key is set, it
+ * suggests a fresh one for the admin to copy into Vercel (new on every call and never cached, so only the caller sees it).
+ */
 export async function GET(): Promise<Response> {
   const v = vapidFrom(readEnv().VAPID_PRIVATE_KEY);
-  return json(200, { ready: !!v, publicKey: v?.pub ?? null });
+  if (v) return json(200, { ready: true, publicKey: v.pub });
+  return json(200, {
+    ready: false,
+    publicKey: null,
+    setup: 'Push ist noch nicht eingerichtet. suggestedKey in Vercel als VAPID_PRIVATE_KEY eintragen (Production und Preview) und neu deployen.',
+    suggestedKey: newVapidKey(),
+  }, { 'cache-control': 'no-store' });
 }
 
 interface Body { op?: string; game?: string; sub?: unknown }
