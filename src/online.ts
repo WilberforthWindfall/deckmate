@@ -8,6 +8,7 @@ import { act, actorOf, type Action } from './game/actions.ts';
 import { newGame, opp, type GameState, type Side } from './game/rules.ts';
 import { battleGame, newCampaign, type Campaign, type CampaignOptions } from './campaign/engine.ts';
 import { HOUSES, type House } from './campaign/map.ts';
+import { myPush, myPushFields, pingTurn, type PushMap } from './notify.ts';
 
 export interface GameDoc {
   id: string;
@@ -21,6 +22,8 @@ export interface GameDoc {
   state: GameState;
   /** Deckmate battle of an online campaign: back link to it. Such games do not count for wins and losses. */
   campaign?: { id: string; battle: string };
+  /** Push subscriptions of the players' devices (see notify.ts). */
+  push?: PushMap;
 }
 
 /** Online campaign in the same collection (so the existing Firestore rules apply). The state is stored as JSON text. */
@@ -35,6 +38,7 @@ export interface CampaignDoc {
   names: Record<House, string | null>;
   members: string[];
   cstate: string;
+  push?: PushMap;
 }
 export type AnyDoc = GameDoc | CampaignDoc;
 export const isCampaign = (g: AnyDoc): g is CampaignDoc => (g as CampaignDoc).kind === 'kampagne';
@@ -52,7 +56,7 @@ export async function createGame(user: User, name: string, side: Side): Promise<
     name: name.trim() || `Partie von ${nameOf(user)}`,
     createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     status: 'open', players, names, members: [user.uid],
-    state: newGame(Math.random),
+    state: newGame(Math.random), push: await myPush(user.uid),
   });
   return ref.id;
 }
@@ -77,7 +81,7 @@ export async function createCampaign(user: User, name: string, house: House, opt
   const ref = await addDoc(gamesCol, {
     kind: 'kampagne', name: name.trim() || `Kampagne von ${nameOf(user)}`,
     createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    status: 'open', players, names, members: [user.uid],
+    status: 'open', players, names, members: [user.uid], push: await myPush(user.uid),
     cstate: JSON.stringify({ ...newCampaign(opts), report: ['Runde 1 beginnt. Beide Häuser geben ihre Befehle gleichzeitig, jeder an seinem Gerät.'] }),
   });
   return ref.id;
@@ -88,7 +92,8 @@ export function watchCampaign(id: string, cb: (g: CampaignDoc | null) => void, o
 }
 
 export async function joinCampaign(user: User, id: string): Promise<House> {
-  return runTransaction(db, async (tx) => {
+  const myDevice = await myPushFields(user.uid);
+  const house = await runTransaction(db, async (tx) => {
     const ref = doc(db, 'games', id);
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error('Diese Kampagne gibt es nicht mehr.');
@@ -99,10 +104,12 @@ export async function joinCampaign(user: User, id: string): Promise<House> {
     if (!free) throw new Error('Diese Kampagne ist bereits voll.');
     tx.update(ref, {
       [`players.${free}`]: user.uid, [`names.${free}`]: nameOf(user),
-      members: [...g.members, user.uid], status: 'running', updatedAt: serverTimestamp(),
+      members: [...g.members, user.uid], status: 'running', updatedAt: serverTimestamp(), ...myDevice,
     });
     return free;
   });
+  pingTurn(id);
+  return house;
 }
 
 /**
@@ -128,11 +135,12 @@ export async function commitCampaign(user: User, id: string, fn: (c: Campaign, m
       if (l) tx.set(doc(db, 'users', l), { losses: increment(1) }, { merge: true });
     }
   });
+  pingTurn(id);
 }
 
 /** Opens (or finds) the Deckmate game for a pending battle: the attacking house plays the officers. */
 export async function startCampaignBattle(user: User, id: string, battleId: string): Promise<string> {
-  return runTransaction(db, async (tx) => {
+  const gameId = await runTransaction(db, async (tx) => {
     const ref = doc(db, 'games', id);
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error('Diese Kampagne gibt es nicht mehr.');
@@ -149,12 +157,15 @@ export async function startCampaignBattle(user: User, id: string, battleId: stri
       createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), status: 'running',
       players: { O: g.players[att.house], M: g.players[def.house] },
       names: { O: `${g.names[att.house]} (${HOUSES[att.house].n})`, M: `${g.names[def.house]} (${HOUSES[def.house].n})` },
-      members: g.members, state: battleGame(c, battleId, Math.random), campaign: { id, battle: battleId },
+      members: g.members, state: battleGame(c, battleId, Math.random), campaign: { id, battle: battleId }, push: g.push ?? {},
     });
     b.game = gref.id;
     tx.update(ref, { cstate: JSON.stringify(c), updatedAt: serverTimestamp() });
     return gref.id;
   });
+  pingTurn(id);
+  pingTurn(gameId);
+  return gameId;
 }
 
 export function watchGame(id: string, cb: (g: GameDoc | null) => void, onError: (e: Error) => void) {
@@ -162,7 +173,8 @@ export function watchGame(id: string, cb: (g: GameDoc | null) => void, onError: 
 }
 
 export async function joinGame(user: User, id: string): Promise<Side> {
-  return runTransaction(db, async (tx) => {
+  const myDevice = await myPushFields(user.uid);
+  const side = await runTransaction(db, async (tx) => {
     const ref = doc(db, 'games', id);
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error('Diese Partie gibt es nicht mehr.');
@@ -173,10 +185,12 @@ export async function joinGame(user: User, id: string): Promise<Side> {
     if (!free) throw new Error('Diese Partie ist bereits voll.');
     tx.update(ref, {
       [`players.${free}`]: user.uid, [`names.${free}`]: nameOf(user),
-      members: [...g.members, user.uid], status: 'running', updatedAt: serverTimestamp(),
+      members: [...g.members, user.uid], status: 'running', updatedAt: serverTimestamp(), ...myDevice,
     });
     return free;
   });
+  pingTurn(id);
+  return side;
 }
 
 /** Applies a player action inside a transaction, so two browsers can never write over each other. */
@@ -201,6 +215,7 @@ export async function sendAction(user: User, id: string, a: Action): Promise<voi
       if (loseUid) tx.set(doc(db, 'users', loseUid), { losses: increment(1) }, { merge: true });
     }
   });
+  pingTurn(id);
 }
 
 export async function rematch(user: User, g: GameDoc): Promise<string> {
@@ -209,8 +224,9 @@ export async function rematch(user: User, g: GameDoc): Promise<string> {
   const ref = await addDoc(gamesCol, {
     name: `${g.name} · Revanche`, createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     status: players.M && players.O ? 'running' : 'open', players, names, members: g.members,
-    state: newGame(Math.random),
+    state: newGame(Math.random), push: g.push ?? {},
   });
+  pingTurn(ref.id);
   return ref.id;
 }
 

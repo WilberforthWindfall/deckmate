@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth.tsx';
+import { ensurePush } from '../notify.ts';
 import { commitCampaign, joinCampaign, parseCampaign, startCampaignBattle, watchCampaign, type CampaignDoc } from '../online.ts';
 import { HOUSES, type House } from '../campaign/map.ts';
 import type { Campaign as CampaignState } from '../campaign/engine.ts';
@@ -21,6 +22,9 @@ export default function OnlineCampaign() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => watchCampaign(id, setG, (e) => setError(firestoreHint(e))), [id]);
+  const amMember = !!(g && user && g.members.includes(user.uid));
+  // this device's push subscription into the game, if it is missing (e.g. a new phone)
+  useEffect(() => { if (amMember && user && g) ensurePush(user.uid, id, g.push); }, [amMember, id, user?.uid, !!g]); // eslint-disable-line react-hooks/exhaustive-deps
   const c = useMemo<CampaignState | null>(() => (g ? parseCampaign(g) : null), [g?.cstate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null;
