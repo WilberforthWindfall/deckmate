@@ -68,7 +68,7 @@ export function pending(g: GameLike): Pending[] {
   } else if (st.phase === 'play' && (st.turn === 'M' || st.turn === 'O')) {
     add(pl[st.turn], `zug:${st.moveNo}:${st.turn}`, `Du bist am Zug (${SIDE[st.turn]}).`);
   } else if (st.phase === 'over') {
-    for (const s of ['M', 'O'] as const) add(pl[s], 'ende', st.winner === s ? 'Gewonnen! Die Partie ist beendet.' : st.winner ? `Die Partie ist beendet, die ${SIDE[st.winner]} gewinnen.` : 'Die Partie ist beendet.');
+    for (const s of ['M', 'O'] as const) add(pl[s], 'ende', st.winner === s ? 'Gewonnen! Die Partie ist beendet.' : st.winner ? `Die Partie ist beendet, ${st.winner === 'M' ? 'die Mannschaft gewinnt' : 'die Offiziere gewinnen'}.` : 'Die Partie ist beendet.');
   }
   return out;
 }

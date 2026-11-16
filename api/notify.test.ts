@@ -15,7 +15,8 @@ test('Partie: Beitritt und Ende melden beiden Seiten', () => {
   assert.deepEqual(pending(game({ phase: 'setup' })).map((p) => [p.uid, p.key]), [['a', 'bereit'], ['b', 'bereit']]);
   const over = pending(game({ phase: 'over', winner: 'M' }));
   assert.match(over[0].text, /Gewonnen/);
-  assert.match(over[1].text, /Mannschaft gewinnen/);
+  assert.match(over[1].text, /die Mannschaft gewinnt\./);
+  assert.match(pending(game({ phase: 'over', winner: 'O' }))[0].text, /die Offiziere gewinnen\./);
 });
 
 test('Kampagne: Befehle nur an das Haus, das noch nicht versiegelt hat', () => {
