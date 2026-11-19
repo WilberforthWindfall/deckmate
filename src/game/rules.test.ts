@@ -8,15 +8,19 @@ import {
 const fixed = (...vals: number[]) => { let i = 0; return () => vals[i++ % vals.length]; };
 const targets = (st: GameState, from: string) => legalMoves(st, f(from)).map((m) => sqName(m.to)).sort();
 
-test('Startaufstellung: 16 Steine, 16 Offiziere, je 2 Karten', () => {
+test('Startaufstellung: 16 Steine, 16 Offiziere, je 2 Karten, Rota Zora bei den Offizieren', () => {
   const st = newGame(Math.random);
   assert.equal(st.board.filter((p) => p?.s === 'M').length, 16);
   for (const n of ['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1']) assert.equal(st.board[f(n)]?.t, 'stone', n);
   assert.equal(st.board.filter((p) => p?.s === 'O').length, 16);
-  assert.equal(st.board[f('e8')]?.t, 'FL');
-  assert.equal(st.board[f('d8')]?.t, 'CAP');
+  // Captain (FL) on the wine-red d8, First Lieutenant (CAP) on the golden e8.
+  assert.equal(st.board[f('d8')]?.t, 'FL');
+  assert.equal(st.board[f('e8')]?.t, 'CAP');
   assert.equal(st.hands.M.length, 2);
-  assert.equal(st.hands.O.length, 2);
+  assert.deepEqual(st.hands.O.slice(2), ['zora']);
+  assert.equal(st.hands.O.length, 3);
+  assert.equal(st.board.filter((p) => p?.possessed).length, 1);
+  assert.ok(st.purse!.M.length >= 1 && st.purse!.M.length <= 6);
 });
 
 test('Vor dem Start sind keine Züge möglich, danach nur für die Seite am Zug', () => {
@@ -265,7 +269,7 @@ test('Feedback-Schnappschuss: Brett als Text mit Reihe 8 oben', async () => {
   const { boardText, gameSnapshot } = await import('./snapshot.ts');
   const st = startGame(newGame(Math.random), 'M');
   const text = boardText(st);
-  assert.match(text.split('\n')[0], /^8  K M P C F P M K/);
+  assert.match(text.split('\n')[0], /^8  K M P F C P M K/);
   assert.match(text.split('\n')[7], /^1  s s s s s s s s/);
   assert.equal(gameSnapshot(st).record.at(-1), 'Mannschaft beginnen');
 });

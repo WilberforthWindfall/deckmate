@@ -41,7 +41,7 @@ export interface MapProps {
 const TONE: Record<Tone, string> = { ok: '#2F6E40', risk: '#8C5A12', bad: '#7E2621', plain: '#2A3F55' };
 type Mark = 'move' | 'support' | 'forage';
 export const BUILDING_ICON: Record<BuildingKey, string> = { kapelle: '✝', giesserei: '⚒', kaserne: '⚔', messe: '★', markt: '⚖', mauer: '▥' };
-export const AGENT_ABBR: Record<SpecKey, string> = { CAP: 'Cp', KAP: 'Kp', KAN: 'Kn', MAR: 'Ma' };
+export const AGENT_ABBR: Record<SpecKey, string> = { CAP: 'Lt', KAP: 'Kp', KAN: 'Kn', MAR: 'Ma' };
 
 const pts = (p: [number, number][]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
 const TILE: Record<string, string> = { A: 'acker', W: 'wald', S: 'sumpf', G: 'gebirge', F: 'fluss', K: 'kueste', H: 'huegel' };

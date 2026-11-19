@@ -51,6 +51,16 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Steward fund (19.11.2026): counts which coins came to lie on Stewards across all games. Every signed-in player
+    // may add coins; only the known coin counters, only numbers, never less than before.
+    match /stats/stewardkasse {
+      function coinKeys() { return ['sov', 'crown', 'halfcrown', 'florin', 'shilling', 'sixpence', 'penny', 'halfpenny', 'farthing']; }
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(coinKeys());
+      allow update: if signedIn() && request.resource.data.keys().hasOnly(coinKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(coinKeys());
+    }
+
     // Old login data from version 1 (plaintext passwords): locked completely.
     match /players/{doc=**} {
       allow read, write: if false;

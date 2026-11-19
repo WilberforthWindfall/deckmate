@@ -5,7 +5,8 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from './firebase.ts';
 import { act, actorOf, type Action } from './game/actions.ts';
-import { newGame, opp, type GameState, type Side } from './game/rules.ts';
+import { DEFAULT_OPTIONS, newGame, opp, type GameState, type Options, type Side } from './game/rules.ts';
+import { addToKasse, newCoins, type Kasse } from './stewardkasse.ts';
 import { battleGame, newCampaign, type Campaign, type CampaignOptions } from './campaign/engine.ts';
 import { HOUSES, type House } from './campaign/map.ts';
 import { myPush, myPushFields, pingTurn, type PushMap } from './notify.ts';
@@ -47,7 +48,7 @@ export const parseCampaign = (g: CampaignDoc) => JSON.parse(g.cstate) as Campaig
 const gamesCol = collection(db, 'games');
 const nameOf = (u: User) => u.displayName || u.email?.split('@')[0] || 'Unbekannt';
 
-export async function createGame(user: User, name: string, side: Side): Promise<string> {
+export async function createGame(user: User, name: string, side: Side, options: Options = DEFAULT_OPTIONS): Promise<string> {
   const players: Record<Side, string | null> = { M: null, O: null };
   const names: Record<Side, string | null> = { M: null, O: null };
   players[side] = user.uid;
@@ -56,7 +57,7 @@ export async function createGame(user: User, name: string, side: Side): Promise<
     name: name.trim() || `Partie von ${nameOf(user)}`,
     createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     status: 'open', players, names, members: [user.uid],
-    state: newGame(Math.random), push: await myPush(user.uid),
+    state: newGame(Math.random, options), push: await myPush(user.uid),
   });
   return ref.id;
 }
@@ -66,8 +67,8 @@ export function watchLobby(cb: (games: AnyDoc[]) => void, onError: (e: Error) =>
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AnyDoc)), onError);
 }
 
-export function watchMyFinished(uid: string, cb: (games: AnyDoc[]) => void) {
-  const q = query(gamesCol, where('members', 'array-contains', uid), where('status', '==', 'over'), orderBy('createdAt', 'desc'), limit(10));
+export function watchMyFinished(uid: string, cb: (games: AnyDoc[]) => void, max = 10) {
+  const q = query(gamesCol, where('members', 'array-contains', uid), where('status', '==', 'over'), orderBy('createdAt', 'desc'), limit(max));
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AnyDoc)), () => cb([]));
 }
 
@@ -195,6 +196,7 @@ export async function joinGame(user: User, id: string): Promise<Side> {
 
 /** Applies a player action inside a transaction, so two browsers can never write over each other. */
 export async function sendAction(user: User, id: string, a: Action): Promise<void> {
+  let coins: Kasse = {};
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'games', id);
     const snap = await tx.get(ref);
@@ -206,6 +208,7 @@ export async function sendAction(user: User, id: string, a: Action): Promise<voi
     const actor = actorOf(g.state, a);
     if (actor && actor !== mySide) throw new Error('Du bist gerade nicht am Zug.');
     const next = act(g.state, a, Math.random);
+    coins = newCoins(g.state, next);
     const update: { state: GameState; updatedAt: ReturnType<typeof serverTimestamp>; status?: string } = { state: next, updatedAt: serverTimestamp() };
     if (next.phase === 'over' && g.state.phase !== 'over') update.status = 'over';
     tx.update(ref, update);
@@ -216,6 +219,8 @@ export async function sendAction(user: User, id: string, a: Action): Promise<voi
     }
   });
   pingTurn(id);
+  // Outside the transaction on purpose: if the rules for the steward fund are not published yet, the move still counts.
+  void addToKasse(coins);
 }
 
 export async function rematch(user: User, g: GameDoc): Promise<string> {
@@ -224,7 +229,7 @@ export async function rematch(user: User, g: GameDoc): Promise<string> {
   const ref = await addDoc(gamesCol, {
     name: `${g.name} · Revanche`, createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     status: players.M && players.O ? 'running' : 'open', players, names, members: g.members,
-    state: newGame(Math.random), push: g.push ?? {},
+    state: newGame(Math.random, { ...DEFAULT_OPTIONS, zora: !!g.state.options.zora, ugur: !!g.state.options.ugur, steward: !!g.state.options.steward }), push: g.push ?? {},
   });
   pingTurn(ref.id);
   return ref.id;

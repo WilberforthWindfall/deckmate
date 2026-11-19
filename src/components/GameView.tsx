@@ -5,7 +5,8 @@ import { TERRAIN, battleResult, capturedText, deployText } from '../game/battle.
 import { FeedbackButton } from './Feedback.tsx';
 import { gameSnapshot } from '../game/snapshot.ts';
 import {
-  CARDS, PIECES, SIDE_NAME, cardBlocker, legalMoves, sqName, type GameState, type Move, type Options, type PieceType, type Side,
+  CARDS, COINS, PIECES, SIDE_NAME, bribeTargets, cardBlocker, castleKind, coinsText, legalMoves, pieceName, pieceRule, sqName,
+  stewardMoves, type Coin, type GameState, type Move, type Options, type PieceType, type Side,
 } from '../game/rules.ts';
 
 interface Props {
@@ -23,11 +24,26 @@ interface Props {
   onOptions?: (o: Options) => void;
   /** Where the in-game feedback comes from and extra facts for the report (game id, players …). */
   feedback?: { where?: string; context?: Record<string, string | number | boolean | null>; name?: string };
+  /** Before the start (one device): switch the rule extensions; the game is dealt anew. */
+  onExtensions?: (o: Options) => void;
+}
+
+type CoinAsk = { kind: 'bribe'; at: number } | { kind: 'steward'; from: number; to: number };
+
+/** Coins of a purse, grouped and sorted by value. */
+function coinGroups(list: Coin[]): [Coin, number][] {
+  const n = new Map<Coin, number>();
+  for (const c of list) n.set(c, (n.get(c) ?? 0) + 1);
+  return [...n].sort((a, b) => COINS[b[0]].value - COINS[a[0]].value);
+}
+
+export function CoinChip({ c, n }: { c: Coin; n?: number }) {
+  return <span className={`coin ${COINS[c].metal}`} title={`${COINS[c].n} (${COINS[c].metal})`}><i style={{ width: 10 + 6 * COINS[c].size, height: 10 + 6 * COINS[c].size }} />{n && n > 1 ? `${n}× ` : ''}{COINS[c].n}</span>;
 }
 
 const DICE = '⚀⚁⚂⚃⚄⚅';
 
-export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions, feedback }: Props) {
+export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions, feedback, onExtensions }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const table = useRef<Table3D | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -37,6 +53,9 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   const [toast, setToast] = useState('');
   const [hideOver, setHideOver] = useState(false);
   const [sending, setSending] = useState(false);
+  const [bribeMode, setBribeMode] = useState(false);
+  const [coinAsk, setCoinAsk] = useState<CoinAsk | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   const controls = (s: Side) => freeMode || mySide === null || mySide === s;
 
@@ -47,19 +66,24 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   const spotlight = !freeMode && lc && (mySide === null || lc.side !== mySide) && lc.moveNo >= st.moveNo - 1 && seenCard !== lcKey ? lc : null;
   const dismissCard = () => { setSeenCard(lcKey); try { sessionStorage.setItem('deckmate-seen-card', lcKey); } catch { /* private mode */ } };
 
+  const bribes = !freeMode && controls('O') ? bribeTargets(st) : [];
+  const ugurPick = st.pending?.kind === 'ugur' && controls('M') ? st.pending.options ?? [] : [];
   const pickable = st.phase === 'setup' && st.deploy
     ? st.board.flatMap((q, i) => (q && controls(q.s) && (st.deploy?.[q.s]?.[q.t] ?? 0) > 0 ? [i] : []))
-    : undefined;
+    : bribeMode ? bribes : ugurPick.length ? ugurPick : undefined;
   const result = battleResult(st);
 
   const moves = useMemo(() => {
     if (sel === null) return [];
     const p = st.board[sel];
-    if (!p || !controls(p.s) || sending) return [];
+    if (!p || sending) return [];
+    // A Steward can be sent by whichever side is to move (if it commands him), one square in any direction.
+    if (p.t === 'STW') return freeMode || !controls(st.turn) ? [] : stewardMoves(st, sel).map((to): Move => ({ from: sel, to, cap: [], path: [to] }));
+    if (!controls(p.s)) return [];
     return legalMoves(st, sel, !!freeMode);
   }, [st, sel, mySide, freeMode, sending]);
 
-  // Castling is offered via the Carronade (ring + question), not as extra target squares for the First Leutnant.
+  // Castling is offered via the Mörser (ring + question), not as extra target squares for the Captain.
   const castles = useMemo(() => moves.filter((m) => m.castle), [moves]);
   const plainMoves = useMemo(() => moves.filter((m) => !m.castle), [moves]);
 
@@ -74,10 +98,24 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     onCard: (side: Side, index: number) => setSelCard({ side, index }),
   });
   handlers.current.onSquare = (i: number) => {
+    if (ugurPick.length) {
+      if (ugurPick.includes(i)) send({ type: 'ugur', at: i });
+      else { setToast('Wähle einen der markierten Offiziere für Ugur.'); setTimeout(() => setToast(''), 2600); }
+      return;
+    }
+    if (bribeMode) {
+      if (bribes.includes(i)) setCoinAsk({ kind: 'bribe', at: i });
+      else { setBribeMode(false); setToast('Bestechung abgebrochen.'); setTimeout(() => setToast(''), 1800); }
+      return;
+    }
+    if (sel !== null && st.board[sel]?.t === 'STW') {
+      const m = moves.find((x) => x.to === i);
+      if (m) { setCoinAsk({ kind: 'steward', from: sel, to: i }); return; }
+    }
     if (st.phase === 'setup' && st.deploy) {
       const q = st.board[i];
       if (q && controls(q.s) && (st.deploy[q.s]?.[q.t] ?? 0) > 0) send({ type: 'remove', at: i });
-      else if (q && controls(q.s)) { setToast(q.t === 'FL' ? 'Der First Leutnant führt das Heer und bleibt auf dem Brett.' : 'Von dieser Figur fehlt deinem Heer keine.'); setTimeout(() => setToast(''), 2600); }
+      else if (q && controls(q.s)) { setToast(q.t === 'FL' ? 'Der Captain führt das Heer und bleibt auf dem Brett.' : 'Von dieser Figur fehlt deinem Heer keine.'); setTimeout(() => setToast(''), 2600); }
       return;
     }
     if (st.fx.shieldPick && controls(st.turn)) {
@@ -113,7 +151,14 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   });
 
   useEffect(() => { if (follow && st.phase === 'play') table.current?.face(st.turn); }, [st.turn, st.phase, follow]);
-  useEffect(() => { setSel(null); setCastleAsk(null); }, [st.v]);
+  useEffect(() => { setSel(null); setCastleAsk(null); setCoinAsk(null); setBribeMode(false); }, [st.v]);
+  // The log shows the whole game; keep it scrolled to the latest move unless the player scrolled up to read.
+  const recordLen = st.record?.length ?? st.log.length;
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+  }, [recordLen]);
+  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
   useEffect(() => { setCastleAsk(null); }, [sel]);
   useEffect(() => { if (st.phase !== 'over') setHideOver(false); }, [st.phase]);
   useEffect(() => { if (selCard && !st.hands[selCard.side][selCard.index]) setSelCard(null); }, [st.hands, selCard]);
@@ -129,10 +174,13 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   if (st.fx.calm) chips.push(`Ruhe vor dem Sturm: ${SIDE_NAME[st.fx.calm]} schlagen nicht`);
   if (st.fx.retreat) chips.push('Böe: 1 Feld in jede Richtung');
   if (st.fx.shieldPick) chips.push('Figur für Ehrenwache wählen');
+  if (st.fx.onlyUgur) chips.push('Rota Zora: Die Mannschaft ist verwirrt, nur Ugur zieht');
+  if (st.fx.bribed) chips.push('Steward bestochen – Schlagpflicht verfällt');
+  if (st.fx.stewardMoved) chips.push('Steward bewegt');
   if (st.fx.played && !st.fx.moved && !st.fx.shieldPick && st.phase === 'play') chips.push('Karte gespielt – jetzt ziehen');
   if (st.fx.moved && !st.fx.shieldPick) chips.push('Gezogen – Karte noch möglich');
   (['M', 'O'] as Side[]).forEach((s) => { if (st.fx.skip[s]) chips.push(`${SIDE_NAME[s]} setzen nächsten Zug aus`); });
-  st.board.forEach((q) => { if (q?.shielded) chips.push(`${PIECES[q.t].n} unter Ehrenwache`); });
+  st.board.forEach((q) => { if (q?.shielded) chips.push(`${pieceName(q)} unter Ehrenwache`); });
 
   const turnTitle = freeMode ? 'Testszene'
     : st.phase === 'setup' ? 'Vor dem Ablegen'
@@ -190,7 +238,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <div className="overlay" role="dialog" aria-modal="true" aria-label="Rochade">
             <div className="dialog">
               <h2>Rochade?</h2>
-              <p>First Leutnant {sqName(castleAsk.from)} → {sqName(castleAsk.to)}, Carronade {sqName(castleAsk.castle!.rookFrom)} → {sqName(castleAsk.castle!.rookTo)} ({castleAsk.castle!.rookFrom % 8 === 7 ? 'kurze' : 'lange'} Rochade). Das zählt als dein Zug.</p>
+              <p>Captain {sqName(castleAsk.from)} → {sqName(castleAsk.to)}, Mörser {sqName(castleAsk.castle!.rookFrom)} → {sqName(castleAsk.castle!.rookTo)} ({castleKind(castleAsk) === 'kurz' ? 'kurze' : 'lange'} Rochade). Das zählt als dein Zug.</p>
               <div className="row">
                 <button type="button" className="primary" autoFocus disabled={sending} onClick={() => { const m = castleAsk; setCastleAsk(null); setSel(null); send({ type: 'move', from: m.from, to: m.to, path: m.path }); }}>Rochade</button>
                 <button type="button" className="ghost" onClick={() => setCastleAsk(null)}>Abbrechen</button>
@@ -213,6 +261,48 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             </div>
           </div>
         )}
+        {!waiting && !spotlight && st.pending && st.pending.kind !== 'ugur' && (st.pending.kind === 'promoM' ? controls('M') : controls('O')) && (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label={st.pending.kind === 'promoM' ? 'Beförderung' : 'Umwandlung'}>
+            <div className="dialog promo-dialog">
+              {st.pending.kind === 'promoM' ? <>
+                <h2>Beförderung auf {sqName(st.pending.at)}</h2>
+                <p>Der Stein hat das Achterdeck erreicht. Pasch ergibt einen Turm (schwarz), kein Pasch einen Läufer (weiß).</p>
+                <div className="dice big" aria-hidden="true">⚂ ⚄</div>
+                <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="primary" autoFocus disabled={sending} onClick={() => send({ type: 'roll' })}>Würfeln</button></div>
+              </> : <>
+                <h2>Umwandlung auf {sqName(st.pending.at)}</h2>
+                <p>Der Fähnrich hat Reihe 1 erreicht. Welcher Offizier soll er werden?</p>
+                <div className="pick-grid">{(['CAP', 'KAN', 'KAP', 'MAR'] as PieceType[]).map((t) =>
+                  <button key={t} type="button" disabled={sending} onClick={() => send({ type: 'convert', t })}><b>{PIECES[t].n}</b><span>{PIECES[t].r.split('.')[0]}</span></button>)}</div>
+              </>}
+            </div>
+          </div>
+        )}
+        {!waiting && st.pending && st.pending.kind !== 'ugur' && !(st.pending.kind === 'promoM' ? controls('M') : controls('O')) && (
+          <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>{st.pending.kind === 'promoM' ? 'Die Mannschaft würfelt die Beförderung aus …' : 'Die Offiziere wählen die neue Figur …'}</div>
+        )}
+        {!waiting && st.pending?.kind === 'ugur' && (
+          <div className="toast ugur" role="status" style={{ top: 'auto', bottom: 64 }}>{ugurPick.length ? 'Ugur verlässt den Fähnrich: Tippe den markierten Offizier an, den er ergreifen soll.' : 'Die Mannschaft wählt, welchen Offizier Ugur ergreift …'}</div>
+        )}
+        {!waiting && bribeMode && (
+          <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Bestechung: Tippe einen markierten Mannschaftsstein an. Woanders tippen bricht ab.</div>
+        )}
+        {!waiting && coinAsk && (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label="Münze wählen">
+            <div className="dialog">
+              <h2>{coinAsk.kind === 'bribe' ? `Stein ${sqName(coinAsk.at)} bestechen` : `Steward ${sqName(coinAsk.from)} → ${sqName(coinAsk.to)}`}</h2>
+              <p>{coinAsk.kind === 'bribe'
+                ? 'Die Münze bleibt auf dem Stein liegen. Er wird zum Steward: unschlagbar, schlägt selbst nicht, steht im Weg. Die Schlagpflicht verfällt für diesen Zug.'
+                : 'Für jeden Gang legt ihr eine weitere Münze auf den Steward. Danach zieht ihr wie gewohnt.'} Welche Münze?</p>
+              <div className="pick-grid coins">{coinGroups(st.purse?.[coinAsk.kind === 'bribe' ? 'O' : st.turn] ?? []).map(([c, n]) => (
+                <button key={c} type="button" disabled={sending} onClick={() => {
+                  const a = coinAsk; setCoinAsk(null); setBribeMode(false); setSel(null);
+                  send(a.kind === 'bribe' ? { type: 'bribe', at: a.at, coin: c } : { type: 'steward', from: a.from, to: a.to, coin: c });
+                }}><CoinChip c={c} /><span>{n} übrig</span></button>))}</div>
+              <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="ghost" onClick={() => setCoinAsk(null)}>Abbrechen</button></div>
+            </div>
+          </div>
+        )}
         {!waiting && !freeMode && st.phase === 'setup' && st.deploy && (
           <div className="toast" role="status" style={{ top: 'auto', bottom: 64 }}>Aufstellung: Tippe die Figuren an, die deinem Heer fehlen. Ihre Felder bleiben in der Schlacht leer.</div>
         )}
@@ -220,6 +310,20 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           <div className="overlay"><div className="dialog">
             <h2>{st.battle ? `Schlacht um ${st.battle.province}` : 'Wer sticht zuerst in See?'}</h2>
             <p>{st.battle ? 'Die Karten liegen vor jeder Seite auf dem Tisch.' : 'Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch.'} Pro Zug darf eine Karte gespielt werden, vor oder nach dem Ziehen.</p>
+            {(st.options.zora || st.options.ugur || st.options.steward) && (
+              <div className="ext-list">
+                {st.options.zora && <div><b>Die Rota Zora</b> liegt bei den Offizieren: einmal pro Partie ein weiterer Zug.</div>}
+                {st.options.ugur && <div><b>Ugur</b> lauert in einem der Mannschaftssteine. Niemand weiß, in welchem.</div>}
+                {st.options.steward && st.purse && <div><b>Münzen</b> ausgewürfelt – Mannschaft: {coinsText(st.purse.M)} · Offiziere: {coinsText(st.purse.O)}</div>}
+              </div>
+            )}
+            {onExtensions && (
+              <div className="ext-toggles">
+                {([['zora', 'Rota Zora'], ['ugur', 'Ugur'], ['steward', 'Steward und Münzen']] as const).map(([k, l]) => (
+                  <label key={k} className="opt"><input type="checkbox" checked={!!st.options[k]} onChange={(e) => onExtensions({ ...st.options, [k]: e.target.checked })} /> {l}</label>
+                ))}
+              </div>
+            )}
             {st.battle?.first ? (
               <div className="row" style={{ justifyContent: 'center' }}>
                 <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: st.battle!.first! })}>{SIDE_NAME[st.battle.first]} beginnen ({TERRAIN[st.battle.terrain].n})</button>
@@ -261,18 +365,10 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
 
         {st.pending && (
           <div className="card promo">
-            {st.pending.kind === 'promoM' ? <>
-              <h2>Beförderung auf {sqName(st.pending.at)}</h2>
-              <div className="rule">Pasch ergibt einen Turm (schwarz), kein Pasch einen Läufer (weiß).</div>
-              {controls('M') ? <div className="row" style={{ marginTop: 10 }}><button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'roll' })}>Würfeln</button></div>
-                : <div className="warn" style={{ marginTop: 8 }}>Die Mannschaft würfelt.</div>}
-            </> : <>
-              <h2>Umwandlung auf {sqName(st.pending.at)}</h2>
-              <div className="rule">Der Fähnrich hat Reihe 1 erreicht.</div>
-              {controls('O') ? <div className="row" style={{ marginTop: 10 }}>{(['CAP', 'KAN', 'KAP', 'MAR'] as PieceType[]).map((t) =>
-                <button key={t} type="button" disabled={sending} onClick={() => send({ type: 'convert', t })}>{PIECES[t].n}</button>)}</div>
-                : <div className="warn" style={{ marginTop: 8 }}>Die Offiziere wählen die neue Figur.</div>}
-            </>}
+            <h2>{st.pending.kind === 'promoM' ? `Beförderung auf ${sqName(st.pending.at)}` : st.pending.kind === 'promoO' ? `Umwandlung auf ${sqName(st.pending.at)}` : 'Ugur sucht ein neues Opfer'}</h2>
+            <div className="rule">{st.pending.kind === 'ugur'
+              ? (ugurPick.length ? 'Tippe auf dem Brett einen der markierten Offiziere an.' : 'Die Mannschaft wählt.')
+              : 'Die Auswahl liegt über dem Spielfeld.'}</div>
           </div>
         )}
         {st.battle && (
@@ -298,6 +394,13 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             <div className="row" style={{ marginTop: 10 }}><button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'endTurn' })}>Zug beenden</button></div>
           </div>
         )}
+        {bribes.length > 0 && !bribeMode && (
+          <div className="card promo">
+            <h2>Schlagpflicht – oder bestechen?</h2>
+            <div className="rule">Legt eine Münze auf einen Mannschaftsstein, den ihr schlagen müsstet. Er wird zum Steward, und die Schlagpflicht verfällt für diesen Zug.</div>
+            <div className="row" style={{ marginTop: 10 }}><button type="button" disabled={sending} onClick={() => { setSel(null); setBribeMode(true); }}>Steward bestechen</button></div>
+          </div>
+        )}
         {stuck && <div className="card"><div className="warn">Die {SIDE_NAME[st.turn]} haben gerade keinen erlaubten Zug. Das sollte nicht passieren: Bitte mach einen Screenshot, damit der Fehler behoben werden kann.</div></div>}
         {st.lastDice && <div className="card"><div className="lbl">Letzter Wurf</div><div className="dice">{DICE[st.lastDice[0] - 1]} {DICE[st.lastDice[1] - 1]}</div></div>}
 
@@ -307,6 +410,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             {(['O', 'M'] as Side[]).map((s) => (
               <div key={s} className="stack" style={{ gap: 6 }}>
                 <div className={`side ${s}`}>{nameOf(s)}{mySide === s ? ' (du)' : ''}</div>
+                {st.purse && <div className="purse">{st.purse[s].length ? coinGroups(st.purse[s]).map(([c, n]) => <CoinChip key={c} c={c} n={n} />) : <span className="rule">Keine Münzen mehr</span>}</div>}
                 <div className="row">{st.hands[s].length ? st.hands[s].map((k, i) => (
                   <button key={i} type="button" className={`chip${selCard?.side === s && selCard.index === i ? ' on' : ''}`} onClick={() => setSelCard({ side: s, index: i })}>
                     <i style={{ background: s === 'M' ? 'var(--coral)' : 'var(--navy)' }} />{CARDS[k].t}
@@ -332,13 +436,17 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
           {st.fx.shieldPick && controls(st.turn) ? <>
             <h2>Ehrenwache</h2><div className="rule">Klicke eine Figur der {SIDE_NAME[st.turn]} an. Sie ist bis zum Ende des nächsten gegnerischen Zugs geschützt.</div>
           </> : p ? <>
-            <h2>{PIECES[p.t].n}</h2>
-            <div className={`side ${p.s}`} style={{ marginBottom: 8 }}>{SIDE_NAME[p.s]} · Feld {sqName(sel!)}{p.shielded ? ' · unter Ehrenwache' : ''}</div>
-            <div className="rule">{PIECES[p.t].r}</div>
-            <div className="count">{plainMoves.length} legale Züge, davon {caps} Schläge</div>
-            {castles.length > 0 && <div className="rule" style={{ marginTop: 8 }}>Rochade möglich: Klicke die markierte Carronade an.</div>}
-            {!freeMode && st.phase === 'play' && p.s !== st.turn && <div className="warn" style={{ marginTop: 8 }}>Die {SIDE_NAME[p.s]} sind nicht am Zug.</div>}
-            {!freeMode && mySide && p.s !== mySide && p.s === st.turn && <div className="warn" style={{ marginTop: 8 }}>Das ist eine Figur der Gegenseite.</div>}
+            <h2>{pieceName(p)}</h2>
+            <div className={`side ${p.t === 'STW' ? '' : p.s}`} style={{ marginBottom: 8 }}>{p.t === 'STW' ? 'neutral' : SIDE_NAME[p.s]} · Feld {sqName(sel!)}{p.shielded ? ' · unter Ehrenwache' : ''}</div>
+            <div className="rule">{pieceRule(p)}</div>
+            {p.t === 'STW' ? <>
+              {p.coins?.length ? <div className="purse" style={{ marginTop: 8 }}>{coinGroups(p.coins).map(([c, n]) => <CoinChip key={c} c={c} n={n} />)}</div> : null}
+              <div className="count">{plainMoves.length ? `${plainMoves.length} Felder erreichbar – Ziel antippen, dann Münze wählen` : 'Gerade nicht bewegbar (keine eigene Figur daneben oder in Schlagreichweite, schon bewegt oder keine Münzen).'}</div>
+            </> : <div className="count">{plainMoves.length} legale Züge, davon {caps} Schläge</div>}
+            {castles.length > 0 && <div className="rule" style={{ marginTop: 8 }}>Rochade möglich: Klicke den markierten Mörser an.</div>}
+            {!freeMode && st.phase === 'play' && p.t !== 'STW' && p.s !== st.turn && <div className="warn" style={{ marginTop: 8 }}>Die {SIDE_NAME[p.s]} sind nicht am Zug.</div>}
+            {!freeMode && mySide && p.t !== 'STW' && p.s !== mySide && p.s === st.turn && <div className="warn" style={{ marginTop: 8 }}>Das ist eine Figur der Gegenseite.</div>}
+            {!freeMode && st.fx.onlyUgur && p.s === 'M' && !p.ugur && p.t !== 'STW' && <div className="warn" style={{ marginTop: 8 }}>Die Rota Zora verwirrt die Mannschaft: Nur Ugur darf ziehen.</div>}
             {mustCap ? <div className="warn" style={{ marginTop: 8 }}>Schlagpflicht aktiv.</div> : null}
           </> : <>
             <div className="rule">Figur antippen, um ihre Züge zu sehen.</div>
@@ -366,8 +474,11 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
               <div><b>Geschlagen, Offiziere:</b> {capturedText(st.captured.O) || '–'}</div>
             </div>
           ) : null}
-          <div className="lbl">Logbuch</div>
-          <div className="log">{st.log.length ? st.log.slice(0, 8).map((l, i) => <div key={i}>{l}</div>) : <div>Noch keine Züge.</div>}</div>
+          <div className="lbl">Logbuch · alle Züge</div>
+          <div className="log full" ref={logRef} tabIndex={0} aria-label="Logbuch der Partie">
+            {(st.record?.length ? st.record : [...st.log].reverse()).map((l, i, all) => <div key={i} className={i === all.length - 1 ? 'latest' : undefined}>{l}</div>)}
+            {!(st.record?.length || st.log.length) && <div>Noch keine Züge.</div>}
+          </div>
         </div>
       </aside>
     </div>
