@@ -212,3 +212,26 @@ details.fold[open] { gap: 10px; }
   .spot-card { animation: spot-in .45s cubic-bezier(.2,.9,.3,1.2); }
   @keyframes spot-in { from { transform: translateY(40px) rotate(-6deg) scale(.85); opacity: 0; } }
 }
+
+/* ---- Regelerweiterungen 19.11.2026: Münzen, Overlays, Logbuch, Bibliothek ---- */
+.log.full { max-height: 260px; overflow-y: auto; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--hull-2) 70%, transparent); border: 1px solid color-mix(in srgb, var(--rope) 50%, transparent); scroll-behavior: smooth; }
+.log.full .latest { color: var(--parchment); }
+.dice.big { font-size: 56px; min-height: 56px; margin: 0; color: var(--parchment); }
+.promo-dialog { max-width: 480px; }
+.pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pick-grid button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 10px; text-align: center; }
+.pick-grid button span { font-size: 12px; color: var(--muted); }
+.pick-grid.coins { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.coin { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 1px 8px 1px 4px; border-radius: 999px; background: var(--hull-2); border: 1px solid color-mix(in srgb, var(--rope) 60%, transparent); white-space: nowrap; }
+.coin i { display: inline-block; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px rgba(0,0,0,.25), inset 2px 2px 3px rgba(255,255,255,.45); }
+.coin.gold i { background: #e6b532; } .coin.silber i { background: #dfe3ea; } .coin.kupfer i { background: #b8673a; }
+.purse { display: flex; flex-wrap: wrap; gap: 4px; }
+.ext-list { display: flex; flex-direction: column; gap: 6px; text-align: left; font-size: 13px; color: var(--muted); padding: 10px 12px; border-radius: 8px; background: var(--hull-2); }
+.ext-list b { color: var(--parchment); font-weight: 600; }
+.ext-toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; }
+.toast.ugur { border-color: #d8261a; box-shadow: 0 0 0 3px rgba(216, 38, 26, .25); }
+.replay-bar { display: flex; align-items: center; gap: 8px; }
+.replay-bar input[type=range] { flex: 1; accent-color: var(--brass); }
+.lib-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--rope) 40%, transparent); }
+.lib-row:last-child { border-bottom: 0; }
+.kasse { display: flex; flex-wrap: wrap; gap: 4px; }

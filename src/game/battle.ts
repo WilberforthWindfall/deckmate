@@ -16,7 +16,7 @@ export const TERRAIN: Record<Terrain, { n: string; rule: string }> = {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(v)));
 
-/** Which officer pieces an attacking army brings: the First Leutnant always leads, specialists up to their maximum, the rest infantry. */
+/** Which officer pieces an attacking army brings: the Captain (FL) always leads, specialists up to their maximum, the rest infantry. */
 export function officerLineup(a: Army): Record<'FL' | keyof typeof MAX_OFFICERS, number> {
   const CAP = clamp(a.spec.CAP, 0, MAX_OFFICERS.CAP), KAP = clamp(a.spec.KAP, 0, MAX_OFFICERS.KAP);
   const KAN = clamp(a.spec.KAN, 0, MAX_OFFICERS.KAN), MAR = clamp(a.spec.MAR, 0, MAX_OFFICERS.MAR);
@@ -57,7 +57,7 @@ export function removePiece(prev: GameState, at: number): GameState {
   const p = prev.board[at];
   if (!p) throw new Error('Auf diesem Feld steht keine Figur.');
   const need = prev.deploy[p.s]?.[p.t] ?? 0;
-  if (need <= 0) throw new Error(p.t === 'FL' ? 'Der First Leutnant führt das Heer und bleibt immer auf dem Brett.' : 'Von dieser Figur fehlt deinem Heer keine.');
+  if (need <= 0) throw new Error(p.t === 'FL' ? 'Der Captain führt das Heer und bleibt immer auf dem Brett.' : 'Von dieser Figur fehlt deinem Heer keine.');
   const st: GameState = JSON.parse(JSON.stringify(prev));
   st.board[at] = null;
   const left = need - 1;
@@ -71,7 +71,7 @@ export function removePiece(prev: GameState, at: number): GameState {
   return st;
 }
 
-/** Remaining removals per side as readable text, e.g. "1 Carronade, 2 Fähnriche". */
+/** Remaining removals per side as readable text, e.g. "1 Mörser, 2 Fähnriche". */
 export function deployText(st: GameState, side: Side): string {
   const need = st.deploy?.[side];
   if (!need) return '';
@@ -79,9 +79,9 @@ export function deployText(st: GameState, side: Side): string {
 }
 
 export const PLURAL: Record<PieceType, [string, string]> = {
-  CAP: ['Captain', 'Captains'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Carronade', 'Carronaden'], MAR: ['Marine', 'Marines'],
-  INF: ['Fähnrich', 'Fähnriche'], stone: ['Stein', 'Steine'], FL: ['First Leutnant', 'First Leutnants'],
-  PT: ['beförderter Turm', 'beförderte Türme'], PL: ['beförderter Läufer', 'beförderte Läufer'],
+  CAP: ['First Lieutenant', 'First Lieutenants'], KAP: ['Kaplan', 'Kapläne'], KAN: ['Mörser', 'Mörser'], MAR: ['Marine', 'Marines'],
+  INF: ['Fähnrich', 'Fähnriche'], stone: ['Stein', 'Steine'], FL: ['Captain', 'Captains'],
+  PT: ['beförderter Turm', 'beförderte Türme'], PL: ['beförderter Läufer', 'beförderte Läufer'], STW: ['Steward', 'Stewards'],
 };
 
 /** Captured pieces of one side as text, e.g. "3 Steine, 1 beförderter Turm". */
@@ -103,7 +103,7 @@ export interface BattleResult {
 export function battleResult(st: GameState): BattleResult | null {
   if (!st.battle || st.phase !== 'over' || !st.winner) return null;
   const b = st.battle;
-  const count = (s: Side, t?: PieceType) => st.board.filter((p) => p && p.s === s && (!t || p.t === t)).length;
+  const count = (s: Side, t?: PieceType) => st.board.filter((p) => p && p.s === s && p.t !== 'STW' && !p.ugur && (!t || p.t === t)).length;
   const offBefore = Object.values(officerLineup(b.attacker)).reduce((x, y) => x + y, 0);
   const offAfter = count('O');
   const crewBefore = crewLineup(b.defender);
@@ -124,7 +124,7 @@ export function battleResult(st: GameState): BattleResult | null {
     headline = `${b.defender.house} hält ${b.province}`;
     detail = resigned
       ? `${b.attacker.house} bricht den Angriff ab, ${offAfter} Figuren kehren zurück.`
-      : `Der First Leutnant von ${b.attacker.house} ist gefallen, ${Math.max(0, offAfter)} Figuren fliehen in eine Nachbarprovinz.`;
+      : `Der Captain von ${b.attacker.house} ist gefallen, ${Math.max(0, offAfter)} Figuren fliehen in eine Nachbarprovinz.`;
   }
   return { winner: st.winner, headline, detail, attacker, defender };
 }

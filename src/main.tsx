@@ -9,8 +9,10 @@ import LocalGame from './pages/LocalGame.tsx';
 import BattleTest from './pages/BattleTest.tsx';
 import Campaign from './pages/Campaign.tsx';
 import OnlineCampaign from './pages/OnlineCampaign.tsx';
+import { LibraryList, Replay } from './pages/Library.tsx';
 import { lazy, Suspense } from 'react';
 const DevTwoPlayer = import.meta.env.DEV ? lazy(() => import('./pages/DevTwoPlayer.tsx')) : null;
+const DevPieces = import.meta.env.DEV ? lazy(() => import('./pages/DevPieces.tsx')) : null;
 import './styles.css';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -30,6 +32,10 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/schlacht" element={<BattleTest />} />
           <Route path="/kampagne" element={<Campaign />} />
           <Route path="/kampagne/:id" element={<Protected><OnlineCampaign /></Protected>} />
+          <Route path="/bibliothek" element={<LibraryList />} />
+          <Route path="/bibliothek/lokal/:id" element={<Replay />} />
+          <Route path="/bibliothek/online/:id" element={<Protected><Replay /></Protected>} />
+          {DevPieces && <Route path="/dev/figuren" element={<Suspense fallback={null}><DevPieces /></Suspense>} />}
           {DevTwoPlayer && <Route path="/dev/kampagne-zwei" element={<Suspense fallback={null}><DevTwoPlayer /></Suspense>} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

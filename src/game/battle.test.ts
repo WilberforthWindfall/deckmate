@@ -13,14 +13,14 @@ test('Aufstellung: Heer bestimmt, welche Figuren fehlen', () => {
   assert.equal(crewLineup(ker), 10);
   const st = newBattle(info(), Math.random);
   assert.deepEqual(st.deploy, { O: { KAN: 1, MAR: 1, INF: 2 }, M: { stone: 6 } });
-  assert.equal(deployText(st, 'O'), '1 Carronade, 1 Marine, 2 Fähnriche');
+  assert.equal(deployText(st, 'O'), '1 Mörser, 1 Marine, 2 Fähnriche');
   assert.throws(() => startGame(st, 'M'), /Erst aufstellen/);
 });
 
-test('Aufstellung: jede Seite wählt selbst, der First Leutnant bleibt', () => {
+test('Aufstellung: jede Seite wählt selbst, der Captain bleibt', () => {
   let st = newBattle(info(), Math.random);
-  assert.throws(() => removePiece(st, f('e8')), /First Leutnant/);
-  assert.throws(() => removePiece(st, f('d8')), /keine/);
+  assert.throws(() => removePiece(st, f('d8')), /Captain/);
+  assert.throws(() => removePiece(st, f('e8')), /keine/);
   for (const n of ['a8', 'b8', 'a7', 'h7', 'a3', 'g3', 'b1', 'd1', 'f1', 'h1']) st = removePiece(st, f(n));
   assert.equal(st.deploy, undefined);
   assert.equal(count(st, 'O'), 12);

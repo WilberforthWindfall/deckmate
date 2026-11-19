@@ -45,7 +45,7 @@ function chapters(): Chapter[] {
         { t: SPEC_NAME.KAP, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.kapelle.n}. Als Einzelgänger ${specLine('KAP')}.`, tags: 'spezialist kaplan kollekte' },
         { t: SPEC_NAME.KAN, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.giesserei.n}. Als Einzelgänger ${specLine('KAN')}.`, tags: 'spezialist kanone' },
         { t: SPEC_NAME.MAR, d: `Höchstens 2 pro Heer, braucht eine ${BUILDINGS.kaserne.n}. Als Einzelgänger ${specLine('MAR')}.`, tags: 'spezialist marines geleitschutz' },
-        { t: 'First Leutnant', d: 'Führt jedes angreifende Heer in der Brett-Schlacht an. Fällt er, ist die Schlacht verloren.' },
+        { t: 'Captain', d: 'Führt jedes angreifende Heer in der Brett-Schlacht an. Fällt er, ist die Schlacht verloren.' },
         { t: 'Fieber', d: 'Ein Heer, das am Rundenende im Sumpf steht, verliert 1 Figur.', tags: 'sumpf krankheit' },
       ],
     },
