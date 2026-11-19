@@ -9,6 +9,7 @@ import type { CampaignOptions } from '../campaign/engine.ts';
 import StartDialog from '../campaign/StartDialog.tsx';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
 import { FeedbackButton } from '../components/Feedback.tsx';
+import { AlertToggle } from '../components/turnAlert.tsx';
 
 export default function Lobby() {
   const { user, logout } = useAuth();
@@ -159,6 +160,7 @@ export default function Lobby() {
               <Link className="lobby-link" to="/kampagne">Kampagne an einem Gerät oder gegen den Computer<span>›</span></Link>
               <Link className="lobby-link" to="/schlacht">Kampagnen-Schlacht ausprobieren<span>›</span></Link>
             </div>
+            <AlertToggle full />
             <div className="card stack">
               <h2>Feedback an die Werft</h2>
               <p className="rule" style={{ margin: 0 }}>Wünsche und Kritik landen direkt bei der Entwicklung.</p>

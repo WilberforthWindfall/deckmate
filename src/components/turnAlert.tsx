@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../auth.tsx';
+import { disablePush, enablePush, pushState, testPush, type PushState } from '../notify.ts';
 
-// "Your turn" alerts for online play: the tab title shows what is waiting, a soft chime sounds when it becomes your
-// turn, and – if the player allows it – a browser notification appears while the tab is in the background.
+// "Your turn" alerts for online play: the tab title shows what is waiting and a soft chime sounds when it becomes your
+// turn. With the game closed or in the background, push notifications from the server take over (see notify.ts).
 
-const KEY = 'deckmate.benachrichtigen';
 const BASE_TITLE = typeof document !== 'undefined' ? document.title : 'Deckmate';
-const wantsNotify = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
-const canNotify = () => typeof Notification !== 'undefined';
 
 let audio: AudioContext | null = null;
 /** Two soft bell tones (no sound file needed). Fails silently if the browser blocks audio. */
@@ -28,41 +27,71 @@ export function chime() {
 
 /**
  * `need`: what the player has to do now (e.g. "Deine Befehle"), or null. Changes to a new non-null value ring the
- * chime and, in the background, send a notification. The first value after opening the page stays silent.
+ * chime. The first value after opening the page stays silent.
  */
 export function useTurnAlert(need: string | null, label: string) {
   const prev = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     document.title = need ? `● ${need} · ${label}` : `${label} · ${BASE_TITLE}`;
-    if (prev.current !== undefined && need && need !== prev.current) {
-      chime();
-      if (document.hidden && wantsNotify() && canNotify() && Notification.permission === 'granted') {
-        try { new Notification('Deckmate', { body: `${need} – ${label}`, tag: `deckmate-${label}` }); } catch { /* ignore */ }
-      }
-    }
+    if (prev.current !== undefined && need && need !== prev.current) chime();
     prev.current = need;
   }, [need, label]);
   useEffect(() => () => { document.title = BASE_TITLE; }, []);
 }
 
-/** Switch for browser notifications (asks the browser for permission once). */
-export function AlertToggle() {
-  const [on, setOn] = useState(() => wantsNotify() && canNotify() && Notification.permission === 'granted');
-  const [hint, setHint] = useState('');
-  if (!canNotify()) return null;
+const HINT: Record<PushState, string> = {
+  on: 'Du bekommst eine Nachricht, sobald du dran bist, auch wenn Deckmate geschlossen ist.',
+  off: 'Eine Nachricht, sobald du dran bist, auch wenn Deckmate geschlossen ist.',
+  blocked: 'Der Browser hat Benachrichtigungen für Deckmate blockiert. Erlaube sie in den Seiteneinstellungen (Schloss-Symbol neben der Adresse) und tippe dann erneut.',
+  'ios-home': 'Auf dem iPhone: erst über „Teilen → Zum Home-Bildschirm“ hinzufügen und Deckmate von dort öffnen.',
+  unsupported: 'Dieser Browser kann keine Push-Nachrichten empfangen.',
+  server: '',
+};
+const NO_PUSH_SERVICE = 'Dieser Browser findet keinen Push-Dienst. Unter GrapheneOS ohne Google: IronFox oder Fennec nutzen und ntfy (F-Droid) als Verteiler installieren.';
+
+/** Switch for push notifications on this device. `full` adds the explanation and a test button (lobby). */
+export function AlertToggle({ full = false }: { full?: boolean }) {
+  const { user } = useAuth();
+  const [st, setSt] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  useEffect(() => { pushState().then(setSt).catch(() => setSt('unsupported')); }, []);
+  if (!user || st === null) return null;
+  // Not set up on the server: no hint for players, the switch simply is not there.
+  if (st === 'server' || !full && st === 'unsupported') return null;
+
   async function toggle() {
-    if (on) { try { localStorage.setItem(KEY, '0'); } catch { /* ignore */ } setOn(false); return; }
-    const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
-    if (p !== 'granted') { setHint('Der Browser hat Benachrichtigungen blockiert. Du kannst sie in den Seiteneinstellungen erlauben.'); return; }
-    try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ }
-    setOn(true); setHint(''); chime();
+    setBusy(true); setNote('');
+    try {
+      const next = st === 'on' ? await disablePush(user!) : await enablePush(user!);
+      setSt(next);
+      if (next === 'on') chime();
+    } catch (e) {
+      const err = e as Error;
+      // Chromium without Google Play (e.g. Vanadium) fails here with AbortError: there is no push service.
+      setNote(err.name === 'AbortError' || err.name === 'NotAllowedError' && Notification.permission === 'granted' ? NO_PUSH_SERVICE : err.message);
+    }
+    setBusy(false);
   }
-  return (
-    <div className="stack" style={{ gap: 4 }}>
-      <button type="button" className={on ? 'on' : 'ghost'} aria-pressed={on} onClick={toggle} style={{ alignSelf: 'flex-start' }}>
-        {on ? '🔔 Benachrichtigung an' : '🔕 Benachrichtigen, wenn ich dran bin'}
-      </button>
-      <span className="rule" style={{ fontSize: 12 }}>{hint || 'Ein Ton und der Tab-Titel zeigen es immer an; die Benachrichtigung erscheint auch, wenn der Tab im Hintergrund liegt.'}</span>
+  async function probe() {
+    setBusy(true); setNote('');
+    try { await testPush(user!); setNote('Probe verschickt. Kommt nichts an? Akku-Optimierung für den Browser (und ntfy) ausschalten.'); } catch (e) { setNote((e as Error).message); }
+    setBusy(false);
+  }
+  const canToggle = st === 'on' || st === 'off' || st === 'blocked';
+  const body = (
+    <div className="stack" style={{ gap: 6 }}>
+      {canToggle && (
+        <div className="row">
+          <button type="button" className={st === 'on' ? 'on' : 'ghost'} aria-pressed={st === 'on'} disabled={busy} onClick={toggle} style={{ alignSelf: 'flex-start' }}>
+            {st === 'on' ? '🔔 Benachrichtigung an' : '🔕 Benachrichtigen, wenn ich dran bin'}
+          </button>
+          {full && st === 'on' && <button type="button" className="ghost" disabled={busy} onClick={probe}>Probe schicken</button>}
+        </div>
+      )}
+      <span className="rule" style={{ fontSize: 12 }} role={note ? 'status' : undefined}>{note || HINT[st]}</span>
+      {full && <span className="rule" style={{ fontSize: 12 }}>Gilt für dieses Gerät; auf jedem Handy oder Rechner einmal einschalten. GrapheneOS ohne Google: IronFox oder Fennec mit der App ntfy als Verteiler.</span>}
     </div>
   );
+  return full ? <div className="card stack"><h2>Benachrichtigungen aufs Handy</h2>{body}</div> : body;
 }

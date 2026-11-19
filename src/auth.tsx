@@ -5,6 +5,7 @@ import {
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase.ts';
+import { refreshPush } from './notify.ts';
 
 interface AuthValue {
   user: User | null;
@@ -20,7 +21,7 @@ const Ctx = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
-  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setReady(true); }), []);
+  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setReady(true); if (u) refreshPush(u); }), []);
 
   const value: AuthValue = {
     user, ready,

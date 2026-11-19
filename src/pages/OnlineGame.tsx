@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import GameView from '../components/GameView.tsx';
 import { useAuth } from '../auth.tsx';
+import { ensurePush } from '../notify.ts';
 import { joinGame, rematch, sendAction, watchGame, type GameDoc } from '../online.ts';
 import { SIDE_NAME, type Side } from '../game/rules.ts';
 import { firestoreHint } from './Lobby.tsx';
@@ -18,6 +19,9 @@ export default function OnlineGame() {
   const [confirmResign, setConfirmResign] = useState(false);
 
   useEffect(() => watchGame(id, setGame, (e) => setError(firestoreHint(e))), [id]);
+  const amMember = !!(game && user && game.members.includes(user.uid));
+  // this device's push subscription into the game, if it is missing (e.g. a new phone)
+  useEffect(() => { if (amMember && user && game) ensurePush(user.uid, id, game.push); }, [amMember, id, user?.uid, !!game]); // eslint-disable-line react-hooks/exhaustive-deps
   const meSide = game && user ? (['M', 'O'] as Side[]).find((s) => game.players[s] === user.uid) ?? null : null;
   const full = !!(game?.players.M && game?.players.O);
   const turnNeed = !game || !meSide ? null

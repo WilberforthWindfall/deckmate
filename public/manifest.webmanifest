@@ -1,0 +1,14 @@
+{
+  "name": "Deckmate",
+  "short_name": "Deckmate",
+  "description": "Mannschaft gegen Offiziere: Dame, Schach, Würfel und Karten an Deck.",
+  "lang": "de",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0D1620",
+  "theme_color": "#0D1620",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
