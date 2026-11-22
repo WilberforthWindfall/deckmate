@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { battleResult, crewLineup, deployText, newBattle, officerLineup, removePiece } from './battle.ts';
 import { applyMove, fromName as f, legalMoves, resign, sqName, startGame, type Army, type BattleInfo } from './rules.ts';
+import { act } from './actions.ts';
 
 const rav: Army = { house: 'Ravensmoor', size: 12, spec: { CAP: 1, KAP: 2, KAN: 1, MAR: 1 } };
 const ker: Army = { house: 'Kerrow', size: 10, spec: { CAP: 0, KAP: 0, KAN: 0, MAR: 0 } };
@@ -36,11 +37,10 @@ test('Furt: Fähnriche ohne Doppelschritt, in der Ebene mit', () => {
   assert.deepEqual(legalMoves(plain, f('d7')).map((m) => sqName(m.to)).sort(), ['d5', 'd6']);
 });
 
-test('Gelände: Gebirge gibt dem Verteidiger eine Karte, auf dem Hügel beginnt die Mannschaft', () => {
+test('Gelände: Gebirge gibt dem Verteidiger eine Karte, auch auf dem Hügel beginnen die Offiziere', () => {
   assert.equal(newBattle(info('gebirge'), Math.random).hands.M.length, 3);
   const hill = newBattle({ ...info('huegel'), attacker: { ...rav, size: 16, spec: { CAP: 1, KAP: 2, KAN: 2, MAR: 2 } }, defender: { ...ker, size: 16 } }, Math.random);
-  assert.throws(() => startGame(hill, 'O'), /Mannschaft/);
-  assert.equal(startGame(hill, 'M').turn, 'M');
+  assert.equal(act(hill, { type: 'start', first: 'M' }, Math.random).turn, 'O');
 });
 
 test('Ergebnis: Überlebende gehen zurück, Aufgabe der Mannschaft ist Rückzug', () => {

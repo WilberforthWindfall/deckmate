@@ -24,8 +24,6 @@ interface Props {
   onOptions?: (o: Options) => void;
   /** Where the in-game feedback comes from and extra facts for the report (game id, players …). */
   feedback?: { where?: string; context?: Record<string, string | number | boolean | null>; name?: string };
-  /** Before the start (one device): switch the rule extensions; the game is dealt anew. */
-  onExtensions?: (o: Options) => void;
 }
 
 type CoinAsk = { kind: 'bribe'; at: number } | { kind: 'steward'; from: number; to: number };
@@ -43,7 +41,7 @@ export function CoinChip({ c, n }: { c: Coin; n?: number }) {
 
 const DICE = '⚀⚁⚂⚃⚄⚅';
 
-export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions, feedback, onExtensions }: Props) {
+export default function GameView({ state: st, mySide, names, onAction, freeMode, waiting, header, footer, overActions, onOptions, feedback }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const table = useRef<Table3D | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -188,7 +186,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
     : mySide === null ? `${SIDE_NAME[st.turn]} am Zug`
     : myTurn ? 'Du bist am Zug' : `${nameOf(st.turn)} ist am Zug`;
   const turnSub = freeMode ? 'Freies Ziehen ohne Zugreihenfolge'
-    : st.phase === 'setup' ? 'Wählt, welche Seite beginnt'
+    : st.phase === 'setup' ? 'Die Offiziere beginnen'
     : st.phase === 'over' ? st.winReason ?? ''
     : `Zug ${st.moveNo}${st.fx.played ? ' · Karte gespielt' : ''}`;
   const turnDot = st.phase === 'over' ? st.winner : st.phase === 'play' && !freeMode ? st.turn : null;
@@ -308,7 +306,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
         )}
         {!waiting && !freeMode && st.phase === 'setup' && !st.deploy && (
           <div className="overlay"><div className="dialog">
-            <h2>{st.battle ? `Schlacht um ${st.battle.province}` : 'Wer sticht zuerst in See?'}</h2>
+            <h2>{st.battle ? `Schlacht um ${st.battle.province}` : 'Klar zum Auslaufen'}</h2>
             <p>{st.battle ? 'Die Karten liegen vor jeder Seite auf dem Tisch.' : 'Jede Seite hat zwei Karten erhalten. Sie liegen vor ihr auf dem Tisch.'} Pro Zug darf eine Karte gespielt werden, vor oder nach dem Ziehen.</p>
             {(st.options.zora || st.options.ugur || st.options.steward) && (
               <div className="ext-list">
@@ -317,24 +315,10 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
                 {st.options.steward && st.purse && <div><b>Münzen</b> ausgewürfelt – Mannschaft: {coinsText(st.purse.M)} · Offiziere: {coinsText(st.purse.O)}</div>}
               </div>
             )}
-            {onExtensions && (
-              <div className="ext-toggles">
-                {([['zora', 'Rota Zora'], ['ugur', 'Ugur'], ['steward', 'Steward und Münzen']] as const).map(([k, l]) => (
-                  <label key={k} className="opt"><input type="checkbox" checked={!!st.options[k]} onChange={(e) => onExtensions({ ...st.options, [k]: e.target.checked })} /> {l}</label>
-                ))}
-              </div>
-            )}
-            {st.battle?.first ? (
-              <div className="row" style={{ justifyContent: 'center' }}>
-                <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: st.battle!.first! })}>{SIDE_NAME[st.battle.first]} beginnen ({TERRAIN[st.battle.terrain].n})</button>
-              </div>
-            ) : (
-              <div className="row" style={{ justifyContent: 'center' }}>
-                <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'M' })}>Mannschaft beginnt</button>
-                <button type="button" disabled={sending} onClick={() => send({ type: 'start', first: 'O' })}>Offiziere beginnen</button>
-                <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start', first: 'roll' })}>Würfeln lassen</button>
-              </div>
-            )}
+            <p className="rule">Die Offiziere beginnen – sie haben immer die Initiative.</p>
+            <div className="row" style={{ justifyContent: 'center' }}>
+              <button type="button" className="primary" disabled={sending} onClick={() => send({ type: 'start' })}>Leinen los – Offiziere beginnen</button>
+            </div>
           </div></div>
         )}
         {!freeMode && st.phase === 'over' && !hideOver && (

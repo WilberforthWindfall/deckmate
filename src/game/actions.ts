@@ -2,13 +2,14 @@
 // (and later by a Cloud Function that validates moves on the server).
 import {
   applyMove, bribe, chooseShield, chooseUgur, endTurn, moveSteward, playCard, resign, resolveConversion, resolvePromotionRoll,
-  rollDie, startGame, SIDE_NAME, type Coin, type GameState, type PieceType, type Rng, type Side,
+  rollDie, startGame, type Coin, type GameState, type PieceType, type Rng, type Side,
 } from './rules.ts';
 import { removePiece } from './battle.ts';
 import { withFrame } from './replay.ts';
 
 export type Action =
-  | { type: 'start'; first: Side | 'roll' }
+  /** `first` is ignored: the officers always begin (PO 22.11.2026). Kept so older clients and records still parse. */
+  | { type: 'start'; first?: Side | 'roll' }
   | { type: 'move'; from: number; to: number; path?: number[] }
   | { type: 'roll' }
   | { type: 'convert'; t: PieceType }
@@ -43,13 +44,7 @@ export function act(st: GameState, a: Action, rng: Rng): GameState {
 
 function apply(st: GameState, a: Action, rng: Rng): GameState {
   switch (a.type) {
-    case 'start': {
-      if (a.first !== 'roll') return startGame(st, a.first);
-      let m = rollDie(rng), o = rollDie(rng);
-      while (m === o) { m = rollDie(rng); o = rollDie(rng); }
-      const first: Side = m > o ? 'M' : 'O';
-      return startGame(st, first, `Würfel: ${SIDE_NAME.M} ${m}, ${SIDE_NAME.O} ${o}`);
-    }
+    case 'start': return startGame(st, 'O');
     case 'move': return applyMove(st, a.from, a.to, a.path);
     case 'roll': return resolvePromotionRoll(st, [rollDie(rng), rollDie(rng)]);
     case 'convert': return resolveConversion(st, a.t);

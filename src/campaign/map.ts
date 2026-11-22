@@ -17,7 +17,7 @@ export const LAND: Record<Land, { n: string; tile: string; forage: number; defen
   G: { n: 'Gebirge', tile: 'gebirge', forage: 0, defense: 1.3, battle: 'gebirge', note: 'Verteidiger deutlich stärker, keine Fourage.' },
   F: { n: 'Flussland', tile: 'fluss', forage: 1, defense: 1, battle: 'fluss', note: 'Schlacht an der Furt.' },
   K: { n: 'Küste', tile: 'kueste', forage: 1, defense: 1, battle: 'ebene', note: 'Keine Besonderheit.' },
-  H: { n: 'Hügelland', tile: 'huegel', forage: 1, defense: 1.2, battle: 'huegel', note: 'Verteidiger stärker, in der Schlacht beginnt er.' },
+  H: { n: 'Hügelland', tile: 'huegel', forage: 1, defense: 1.2, battle: 'huegel', note: 'Verteidiger stärker.' },
 };
 
 const CLASSIC_ROWS = [

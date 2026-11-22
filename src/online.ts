@@ -229,7 +229,7 @@ export async function rematch(user: User, g: GameDoc): Promise<string> {
   const ref = await addDoc(gamesCol, {
     name: `${g.name} · Revanche`, createdBy: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     status: players.M && players.O ? 'running' : 'open', players, names, members: g.members,
-    state: newGame(Math.random, { ...DEFAULT_OPTIONS, zora: !!g.state.options.zora, ugur: !!g.state.options.ugur, steward: !!g.state.options.steward }), push: g.push ?? {},
+    state: newGame(Math.random, DEFAULT_OPTIONS), push: g.push ?? {},
   });
   pingTurn(ref.id);
   return ref.id;

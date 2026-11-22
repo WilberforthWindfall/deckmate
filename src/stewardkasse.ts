@@ -1,4 +1,4 @@
-// Steward fund: counts across all games which coins came to lie on Stewards, so the Stewards can be paid one day.
+// Steward fund: counts across all online games (never games on one device, PO 22.11.2026) which coins came to lie on Stewards, so the Stewards can be paid one day.
 // Firestore document stats/stewardkasse, one counter per coin kind. Best effort: a missing rule never blocks a move.
 import { doc, increment, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase.ts';

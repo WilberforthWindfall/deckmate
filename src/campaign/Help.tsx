@@ -72,7 +72,7 @@ function chapters(): Chapter[] {
           k === 'G' || k === 'S' ? 'Kostet 2 Bewegungspunkte.' : 'Kostet 1 Bewegungspunkt.',
           l.forage === 0 ? 'Keine Fourage.' : `Fourage +${l.forage}.`,
           l.defense > 1 ? `Verteidiger ${pct(l.defense)} stärker.` : '',
-          l.battle === 'fluss' ? 'In der Schlacht gilt die Furt.' : l.battle === 'gebirge' ? 'In der Schlacht erhält der Verteidiger eine Karte mehr.' : l.battle === 'huegel' ? 'In der Schlacht beginnt der Verteidiger.' : '',
+          l.battle === 'fluss' ? 'In der Schlacht gilt die Furt.' : l.battle === 'gebirge' ? 'In der Schlacht erhält der Verteidiger eine Karte mehr.' : '',
           k === 'S' ? 'Fieber: −1 Figur pro Runde.' : '',
         ].filter(Boolean);
         return { t: l.n, d: parts.join(' '), tags: 'gelände land' };

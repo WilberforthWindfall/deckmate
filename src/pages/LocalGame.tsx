@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import GameView from '../components/GameView.tsx';
 import { act, type Action } from '../game/actions.ts';
-import { LAYOUT, newGame, scene, type CardKey, type Coin, type GameState, type PieceType, type Side } from '../game/rules.ts';
+import { DEFAULT_OPTIONS, LAYOUT, newGame, scene, type CardKey, type Coin, type GameState, type PieceType, type Side } from '../game/rules.ts';
 import { entryOf, saveLocal } from '../library.ts';
-import { addToKasse, newCoins } from '../stewardkasse.ts';
 
 type Put = [string, PieceType | `U:${PieceType}` | 'P:stone'];
 interface Scene {
@@ -63,13 +62,13 @@ export default function LocalGame() {
       if (p) base = { ...st, turn: p.s, fx: { ...st.fx, noPflicht: false, retreat: false } };
     }
     const next = act(base, a, Math.random);
-    if (!isScene) void addToKasse(newCoins(base, next));
     setSt(next);
   }
 
-  function fresh(options = st.options) {
+  function fresh() {
     setFree(false); setIsScene(false); gameId.current = newId();
-    setSt(newGame(Math.random, options));
+    // Rota Zora, Ugur and the Steward are part of every game (PO 22.11.2026); only the side-strike option carries over.
+    setSt(newGame(Math.random, { ...DEFAULT_OPTIONS, sideFirst: st.options.sideFirst }));
   }
 
   function loadScene(key: string) {
@@ -96,7 +95,6 @@ export default function LocalGame() {
       freeMode={free}
       onAction={onAction}
       onOptions={(options) => setSt({ ...st, options })}
-      onExtensions={(o) => fresh(o)}
       header={<div className="row" style={{ justifyContent: 'space-between' }}><Link to="/">← Zur Lobby</Link><span className="rule">Partie an einem Gerät</span></div>}
       overActions={<>
         <button type="button" className="primary" onClick={() => fresh()}>Neue Partie</button>
