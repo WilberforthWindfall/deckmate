@@ -122,7 +122,7 @@ test('Ugur-Sprung: Wahl der Mannschaft, Fähnrich kehrt zurück; ohne Offizier a
   assert.equal(s3.board[f('e5')]?.t, 'FL');
 });
 
-test('Steward: Bestechung nur bei Schlagpflicht, Stein wird unschlagbar, Schlagpflicht verfällt', () => {
+test('Steward: Bestechung nur bei Schlagpflicht, Stein wird unschlagbar, Schlagpflicht für ihn verfällt', () => {
   let st = scene([['d8', 'FL'], ['a8', 'KAN'], ['a3', 'stone'], ['h3', 'stone']]);
   st.purse = { M: ['penny'], O: ['crown', 'farthing'] };
   st.turn = 'O';
@@ -131,7 +131,7 @@ test('Steward: Bestechung nur bei Schlagpflicht, Stein wird unschlagbar, Schlagp
   assert.equal(st.board[f('a3')]?.t, 'STW');
   assert.deepEqual(st.purse!.O, ['farthing']);
   assert.ok(!legalMoves(st, f('a8')).some((m) => m.cap.length), 'Steward kann nicht geschlagen werden');
-  assert.ok(legalMoves(st, f('d8')).length > 0, 'Schlagpflicht verfällt');
+  assert.ok(legalMoves(st, f('d8')).length > 0, 'kein anderer Stein in Reichweite: keine Schlagpflicht mehr');
   assert.deepEqual(stewardCoins(st.board), { crown: 1 });
   // Without capture obligation there is nothing to bribe.
   const calm = scene([['d8', 'FL'], ['a8', 'KAN'], ['b3', 'stone']]);
@@ -183,4 +183,25 @@ test('Wiederholung: jede Aktion legt ein Bild für die Bibliothek ab', () => {
 
 test('Die Offiziere beginnen immer – auch wenn eine alte Oberfläche die Mannschaft oder Würfeln schickt', () => {
   for (const first of ['M', 'O', 'roll', undefined] as const) assert.equal(act(newGame(Math.random), { type: 'start', first }, Math.random).turn, 'O');
+});
+
+test('Steward: Schlagpflicht gegenüber anderen Steinen bleibt nach der Bestechung (Feedback #46)', () => {
+  let st = scene([['d8', 'FL'], ['a8', 'KAN'], ['h8', 'KAN'], ['a3', 'stone'], ['h3', 'stone']]);
+  st.purse = { M: [], O: ['crown', 'farthing'] };
+  st.turn = 'O';
+  assert.deepEqual(bribeTargets(st).map(sqName), ['a3', 'h3']);
+  st = bribe(st, f('a3'), 'crown');
+  assert.equal(st.fx.noPflicht, false);
+  assert.deepEqual(legalMoves(st, f('d8')), [], 'Captain darf nicht ziehen, h3 muss geschlagen werden');
+  assert.ok(legalMoves(st, f('h8')).every((m) => m.cap.includes(f('h3'))));
+  assert.deepEqual(bribeTargets(st), [], 'nur eine Bestechung pro Zug');
+});
+
+test('Ugur steckt immer in einem der acht Steine der Grundreihe (Feedback #47)', () => {
+  for (let i = 0; i < 200; i++) {
+    const st = newGame(Math.random);
+    const at = st.board.findIndex((p) => p?.possessed);
+    assert.ok(at >= 0);
+    assert.ok(sqName(at).endsWith('1'), `Ugur auf ${sqName(at)}`);
+  }
 });

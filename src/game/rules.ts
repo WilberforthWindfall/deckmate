@@ -373,8 +373,9 @@ export function newGame(rng: Rng, options: Options = DEFAULT_OPTIONS): GameState
   };
   if (options.zora) st.hands.O.push('zora');
   if (options.ugur) {
-    // Nobody knows which stone in the bilge is possessed – neither side is ever shown this flag.
-    const stones = st.board.flatMap((q, i) => (q?.t === 'stone' ? [i] : []));
+    // The bilge is the crew's home row (row 1, eight stones; clarified by the testers 22.11.2026).
+    // Nobody knows which of these stones is possessed – neither side is ever shown this flag.
+    const stones = st.board.flatMap((q, i) => (q?.t === 'stone' && sqName(i).endsWith('1') ? [i] : []));
     st.board[stones[Math.floor(rng() * stones.length)]]!.possessed = true;
     st.log.unshift('Ugur lauert in der Bilge. Niemand weiß, in welchem Stein.');
     st.record!.push('Ugur lauert in der Bilge. Niemand weiß, in welchem Stein.');
@@ -717,7 +718,7 @@ export function scene(pieces: [string, PieceType | `U:${PieceType}` | 'P:stone']
 
 // ---------- Steward (rule extension 19.11.2026) ----------
 
-/** Crew stones the officers could bribe right now: only while they must capture, one that an officer could take. */
+/** Crew stones the officers could bribe right now: only while they must capture, one that an officer could take. Once per turn. */
 export function bribeTargets(st: GameState): number[] {
   if (!st.options.steward || st.phase !== 'play' || st.turn !== 'O' || st.pending || st.fx.shieldPick || st.fx.moved || st.fx.bribed) return [];
   if (!st.purse?.O.length || st.fx.noPflicht || st.fx.retreat || calmed(st, 'O') || !mustCapture(st.board, 'O', st.options)) return [];
@@ -734,9 +735,11 @@ export function bribe(prev: GameState, at: number, coin: Coin): GameState {
   st.purse!.O.splice(ci, 1);
   const q = st.board[at]!;
   st.board[at] = { t: 'STW', s: 'M', coins: [coin], ...(q.possessed ? { possessed: true as const } : {}) };
-  st.fx.bribed = true; st.fx.noPflicht = true;
+  // Only the bribed stone drops out of the capture obligation (it can no longer be captured); an obligation towards
+  // other stones remains (clarified by the testers 22.11.2026).
+  st.fx.bribed = true;
   st.lastMove = null;
-  pushLog(st, `Offiziere legen einen ${COINS[coin].n} auf den Stein ${sqName(at)} – er wird Steward, die Schlagpflicht verfällt`);
+  pushLog(st, `Offiziere legen einen ${COINS[coin].n} auf den Stein ${sqName(at)} – er wird Steward und kann nicht mehr geschlagen werden`);
   st.v++;
   return st;
 }

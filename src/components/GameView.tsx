@@ -173,7 +173,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
   if (st.fx.retreat) chips.push('Böe: 1 Feld in jede Richtung');
   if (st.fx.shieldPick) chips.push('Figur für Ehrenwache wählen');
   if (st.fx.onlyUgur) chips.push('Rota Zora: Die Mannschaft ist verwirrt, nur Ugur zieht');
-  if (st.fx.bribed) chips.push('Steward bestochen – Schlagpflicht verfällt');
+  if (st.fx.bribed) chips.push('Steward bestochen');
   if (st.fx.stewardMoved) chips.push('Steward bewegt');
   if (st.fx.played && !st.fx.moved && !st.fx.shieldPick && st.phase === 'play') chips.push('Karte gespielt – jetzt ziehen');
   if (st.fx.moved && !st.fx.shieldPick) chips.push('Gezogen – Karte noch möglich');
@@ -290,7 +290,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
             <div className="dialog">
               <h2>{coinAsk.kind === 'bribe' ? `Stein ${sqName(coinAsk.at)} bestechen` : `Steward ${sqName(coinAsk.from)} → ${sqName(coinAsk.to)}`}</h2>
               <p>{coinAsk.kind === 'bribe'
-                ? 'Die Münze bleibt auf dem Stein liegen. Er wird zum Steward: unschlagbar, schlägt selbst nicht, steht im Weg. Die Schlagpflicht verfällt für diesen Zug.'
+                ? 'Die Münze bleibt auf dem Stein liegen. Er wird zum Steward: unschlagbar, schlägt selbst nicht, steht im Weg. Für ihn verfällt die Schlagpflicht; könnt ihr einen anderen Stein schlagen, müsst ihr das weiterhin.'
                 : 'Für jeden Gang legt ihr eine weitere Münze auf den Steward. Danach zieht ihr wie gewohnt.'} Welche Münze?</p>
               <div className="pick-grid coins">{coinGroups(st.purse?.[coinAsk.kind === 'bribe' ? 'O' : st.turn] ?? []).map(([c, n]) => (
                 <button key={c} type="button" disabled={sending} onClick={() => {
@@ -381,7 +381,7 @@ export default function GameView({ state: st, mySide, names, onAction, freeMode,
         {bribes.length > 0 && !bribeMode && (
           <div className="card promo">
             <h2>Schlagpflicht – oder bestechen?</h2>
-            <div className="rule">Legt eine Münze auf einen Mannschaftsstein, den ihr schlagen müsstet. Er wird zum Steward, und die Schlagpflicht verfällt für diesen Zug.</div>
+            <div className="rule">Legt eine Münze auf einen Mannschaftsstein, den ihr schlagen müsstet. Er wird zum Steward und ist unschlagbar. Die Schlagpflicht gegenüber anderen Steinen bleibt.</div>
             <div className="row" style={{ marginTop: 10 }}><button type="button" disabled={sending} onClick={() => { setSel(null); setBribeMode(true); }}>Steward bestechen</button></div>
           </div>
         )}
