@@ -11,7 +11,7 @@ export const TERRAIN: Record<Terrain, { n: string; rule: string }> = {
   ebene: { n: 'Ebene', rule: 'Keine Besonderheit.' },
   fluss: { n: 'Flussland', rule: 'Furt: Fähnriche haben keinen Doppelschritt.' },
   gebirge: { n: 'Gebirge', rule: 'Der Verteidiger erhält eine zusätzliche Karte.' },
-  huegel: { n: 'Hügelland', rule: 'Wer den Hügel hält, beginnt: Die Mannschaft (Verteidiger) zieht zuerst.' },
+  huegel: { n: 'Hügelland', rule: 'Auf dem Brett keine Besonderheit – auch hier beginnen die Offiziere. Auf der Karte ist der Verteidiger stärker.' },
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(v)));
@@ -35,7 +35,7 @@ export function newBattle(info: BattleInfo, rng: Rng): GameState {
   const removeM: Partial<Record<PieceType, number>> = {};
   const stones = MAX_STONES - crewLineup(info.defender);
   if (stones > 0) removeM.stone = stones;
-  st.battle = { ...info, first: info.terrain === 'huegel' ? 'M' : undefined };
+  st.battle = { ...info };
   const deploy: GameState['deploy'] = {};
   if (Object.keys(removeO).length) deploy.O = removeO;
   if (Object.keys(removeM).length) deploy.M = removeM;

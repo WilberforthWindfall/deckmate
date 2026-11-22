@@ -73,12 +73,12 @@ function label(txt: string) {
 const MAT = {
   coral: new THREE.MeshStandardMaterial({ color: 0xc8552f, roughness: 0.45, metalness: 0.05 }),
   coralLight: new THREE.MeshStandardMaterial({ color: 0xf2b49a, roughness: 0.5 }),
-  navy: new THREE.MeshStandardMaterial({ color: 0x1f3d66, roughness: 0.35, metalness: 0.15 }),
   brass: new THREE.MeshStandardMaterial({ color: 0xcda641, roughness: 0.28, metalness: 0.85 }),
   ebony: new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.3, metalness: 0.1 }),
   ivory: new THREE.MeshStandardMaterial({ color: 0xf1eadb, roughness: 0.35 }),
   shield: new THREE.MeshStandardMaterial({ color: 0xcda641, emissive: 0x8a6a10, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.6, transparent: true, opacity: 0.85 }),
-  // Kaplane blue, Marines yellow (testers 19.11.2026); the other officers stay navy.
+  // Kaplane blue, Marines yellow (testers 19.11.2026); all other officers wear the crew's red (PO 22.11.2026:
+  // one ship's crew of the Crimson Guard), so they share MAT.coral with the stones.
   chaplain: new THREE.MeshStandardMaterial({ color: 0x2f6fd0, roughness: 0.35, metalness: 0.12 }),
   marine: new THREE.MeshStandardMaterial({ color: 0xe8c22a, roughness: 0.4, metalness: 0.1 }),
   gold: new THREE.MeshStandardMaterial({ color: 0xf2c544, emissive: 0x5a3d00, emissiveIntensity: 0.6, roughness: 0.35, metalness: 0.45, side: THREE.DoubleSide }),
@@ -187,7 +187,7 @@ function makePiece(p: Piece) {
   } else {
     const promoted = t === 'PT' || t === 'PL';
     const demon = !!p.ugur;
-    const mat = demon ? MAT.demon : t === 'PT' ? MAT.ebony : t === 'PL' ? MAT.ivory : t === 'KAP' ? MAT.chaplain : t === 'MAR' ? MAT.marine : MAT.navy;
+    const mat = demon ? MAT.demon : t === 'PT' ? MAT.ebony : t === 'PL' ? MAT.ivory : t === 'KAP' ? MAT.chaplain : t === 'MAR' ? MAT.marine : MAT.coral;
     const acc = demon ? MAT.ember : t === 'PT' ? MAT.ivory : t === 'PL' ? MAT.ebony : MAT.brass;
     const kind = t === 'PT' ? 'KAN' : t === 'PL' ? 'KAP' : t;
     if (kind === 'INF') { const y = body(g, mat, 0.32, 0.14); add(new THREE.TorusGeometry(0.15, 0.03, 10, 32), acc, y, g).rotation.x = Math.PI / 2; add(new THREE.SphereGeometry(0.17, 32, 20), mat, y + 0.13, g); }
@@ -206,7 +206,9 @@ function makePiece(p: Piece) {
     }
     if (kind === 'MAR') {
       const y = body(g, mat, 0.4, 0.18);
-      const head = new THREE.Group(); head.position.y = y; g.add(head);
+      // The muzzle is modelled towards +z. Officers are turned by 180° below, so their head is turned back once more:
+      // the horse looks towards the middle of the board (PO 22.11.2026), not towards its own back rank.
+      const head = new THREE.Group(); head.position.y = y; if (p.s === 'O' && !demon) head.rotation.y = Math.PI; g.add(head);
       add(new THREE.BoxGeometry(0.24, 0.44, 0.3), mat, 0.2, head);
       add(new THREE.BoxGeometry(0.22, 0.2, 0.36), mat, 0.32, head, 0, 0.16).rotation.x = 0.35;
       add(new THREE.BoxGeometry(0.06, 0.3, 0.2), acc, 0.32, head, 0, -0.12);

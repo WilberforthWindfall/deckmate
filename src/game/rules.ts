@@ -391,7 +391,6 @@ export function newGame(rng: Rng, options: Options = DEFAULT_OPTIONS): GameState
 export function startGame(prev: GameState, side: Side, note?: string): GameState {
   if (prev.phase !== 'setup') throw new Error('Die Partie läuft bereits.');
   if (prev.deploy) throw new Error('Erst aufstellen: Beide Seiten müssen ihre fehlenden Figuren vom Brett nehmen.');
-  if (prev.battle?.first && prev.battle.first !== side) throw new Error(`Hier beginnen die ${SIDE_NAME[prev.battle.first]}.`);
   const st = clone(prev);
   st.phase = 'play'; st.turn = side; st.v++;
   if (note) pushLog(st, note);

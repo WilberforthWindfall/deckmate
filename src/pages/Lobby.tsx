@@ -30,7 +30,6 @@ export default function Lobby() {
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [record, setRecord] = useState({ wins: 0, losses: 0 });
-  const [ext, setExt] = useState({ zora: true, ugur: true, steward: true });
   const [kasse, setKasse] = useState<Kasse>({});
 
   useEffect(() => watchLobby((g) => { setGames(g); setLoaded(true); }, (e) => { setError(firestoreHint(e)); setLoaded(true); }), []);
@@ -48,7 +47,7 @@ export default function Lobby() {
     setBusy(true); setError('');
     try {
       const s: Side = side === 'any' ? (Math.random() < 0.5 ? 'M' : 'O') : side;
-      const id = await createGame(user!, name, s, { ...DEFAULT_OPTIONS, ...ext });
+      const id = await createGame(user!, name, s, DEFAULT_OPTIONS);
       nav(`/spiel/${id}`);
     } catch (err) { setError(firestoreHint(err)); setBusy(false); }
   }
@@ -142,12 +141,7 @@ export default function Lobby() {
                     <select id="gside" value={side} onChange={(e) => setSide(e.target.value as Side | 'any')}>
                       <option value="any">Zufällig</option><option value="M">Mannschaft</option><option value="O">Offiziere</option>
                     </select></label>
-                  <fieldset className="stack" style={{ gap: 2, border: 0, padding: 0, margin: 0 }}>
-                    <legend className="lbl" style={{ marginBottom: 4 }}>Regelerweiterungen</legend>
-                    <label className="opt"><input type="checkbox" checked={ext.zora} onChange={(e) => setExt({ ...ext, zora: e.target.checked })} /> Die Rota Zora (Karte der Offiziere)</label>
-                    <label className="opt"><input type="checkbox" checked={ext.ugur} onChange={(e) => setExt({ ...ext, ugur: e.target.checked })} /> Ugur – der Dämon lauert in der Bilge</label>
-                    <label className="opt"><input type="checkbox" checked={ext.steward} onChange={(e) => setExt({ ...ext, steward: e.target.checked })} /> Der Steward und die Münzen</label>
-                  </fieldset>
+                  <p className="rule" style={{ margin: 0 }}>Es gelten immer die Rota Zora, Ugur und der Steward mit den Münzen. Die Offiziere beginnen.</p>
                   <button type="submit" className="primary" disabled={busy}>Partie anlegen</button>
                 </form>
               ) : (
@@ -174,7 +168,7 @@ export default function Lobby() {
             </div>
             <div className="card stack" style={{ gap: 8 }}>
               <h2>Stewardkasse</h2>
-              <p className="rule" style={{ margin: 0 }}>Diese Münzen sind über alle Partien auf Stewards liegen geblieben – eines Tages werden sie ausgezahlt.</p>
+              <p className="rule" style={{ margin: 0 }}>Diese Münzen sind in Online-Partien auf Stewards liegen geblieben (Partien an einem Gerät zählen nicht) – eines Tages werden sie ausgezahlt.</p>
               {COIN_ORDER.some((c) => kasse[c]) ? <>
                 <div className="kasse">{COIN_ORDER.filter((c) => kasse[c]).map((c) => <CoinChip key={c} c={c} n={kasse[c]} />)}</div>
                 <div className="rule">Gesamtwert: <b>{kasseValue(kasse)}</b></div>

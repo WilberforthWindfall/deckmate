@@ -176,7 +176,11 @@ test('Erweiterungen sind abschaltbar und in alten Partien aus', () => {
 function endTurnWhy(st: GameState) { try { endTurn(st, st.turn); return ''; } catch (e) { return (e as Error).message; } }
 
 test('Wiederholung: jede Aktion legt ein Bild für die Bibliothek ab', () => {
-  let st = act(newGame(Math.random), { type: 'start', first: 'M' }, Math.random);
-  st = act(st, { type: 'move', from: f('c3'), to: f('d4') }, Math.random);
+  let st = act(newGame(Math.random), { type: 'start' }, Math.random);
+  st = act(st, { type: 'move', from: f('d7'), to: f('d5') }, Math.random);
   assert.equal(st.replay?.length, 2);
+});
+
+test('Die Offiziere beginnen immer – auch wenn eine alte Oberfläche die Mannschaft oder Würfeln schickt', () => {
+  for (const first of ['M', 'O', 'roll', undefined] as const) assert.equal(act(newGame(Math.random), { type: 'start', first }, Math.random).turn, 'O');
 });
