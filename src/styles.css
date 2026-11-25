@@ -235,3 +235,6 @@ details.fold[open] { gap: 10px; }
 .lib-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--rope) 40%, transparent); }
 .lib-row:last-child { border-bottom: 0; }
 .kasse { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* New deploy available (stale-tab guard, feedback #49). */
+.update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1000; display: flex; gap: 12px; align-items: center; background: var(--hull); border: 1px solid var(--hit); color: var(--parchment); padding: 10px 14px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); max-width: calc(100% - 32px); }

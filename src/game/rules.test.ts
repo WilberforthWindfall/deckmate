@@ -31,21 +31,34 @@ test('Vor dem Start sind keine Züge möglich, danach nur für die Seite am Zug'
   assert.deepEqual(targets(started, 'd7'), []);
 });
 
-test('Mannschaft: Schlagserie mit Rückwärtsschlag, darf nach jedem Sprung beendet werden', () => {
-  const st = scene([['c3', 'stone'], ['d4', 'MAR'], ['d6', 'KAP'], ['b6', 'KAN'], ['e8', 'FL']]);
+test('Mannschaft: Schlagserie vorwärts und seitwärts, darf nach jedem Sprung beendet werden', () => {
+  const st = scene([['c3', 'stone'], ['d4', 'MAR'], ['e6', 'KAP'], ['f7', 'KAN'], ['h8', 'FL']]);
   st.turn = 'M';
   const moves = legalMoves(st, f('c3')).filter((m) => m.cap.length);
-  assert.deepEqual(moves.map((m) => sqName(m.to)).sort(), ['a5', 'c7', 'e5']);
-  const full = moves.find((m) => sqName(m.to) === 'a5')!;
-  assert.deepEqual(full.cap.map(sqName), ['d4', 'd6', 'b6']);
-  const after = applyMove(st, f('c3'), f('a5'));
+  assert.deepEqual(moves.map((m) => sqName(m.to)).sort(), ['e5', 'e7', 'g7']);
+  const full = moves.find((m) => sqName(m.to) === 'g7')!;
+  assert.deepEqual(full.cap.map(sqName), ['d4', 'e6', 'f7']);
+  const after = applyMove(st, f('c3'), f('g7'));
   assert.equal(after.board.filter((p) => p?.s === 'O').length, 1);
   assert.equal(after.turn, 'O');
   // Nach dem ersten Sprung aufhören: nur d4 geschlagen, KAP und KAN bleiben stehen.
   const stop = applyMove(st, f('c3'), f('e5'));
   assert.equal(stop.board[f('d4')], null);
-  assert.equal(stop.board[f('d6')]?.t, 'KAP');
-  assert.equal(stop.board[f('b6')]?.t, 'KAN');
+  assert.equal(stop.board[f('e6')]?.t, 'KAP');
+  assert.equal(stop.board[f('f7')]?.t, 'KAN');
+});
+
+test('Mannschaft: kein Rückwärtssprung in der Schlagserie (Feedback #50)', () => {
+  // Stellung aus #50: b3 springt über b4, b6 und seitlich über c7 – der Sprung zurück über d6 ist verboten.
+  const st = scene([['b3', 'stone'], ['b4', 'CAP'], ['b6', 'INF'], ['c7', 'INF'], ['d6', 'INF'], ['h8', 'FL']]);
+  st.turn = 'M';
+  const caps = legalMoves(st, f('b3')).filter((m) => m.cap.length);
+  assert.deepEqual(caps.map((m) => sqName(m.to)).sort(), ['b5', 'b7', 'd7']);
+  assert.ok(caps.every((m) => !m.cap.map(sqName).includes('d6')));
+  // Auch eine Serie, die vorwärts beginnt, darf nicht diagonal zurückspringen.
+  const back = scene([['c3', 'stone'], ['d4', 'MAR'], ['d6', 'KAP'], ['b6', 'KAN'], ['h8', 'FL']]);
+  back.turn = 'M';
+  assert.deepEqual(legalMoves(back, f('c3')).filter((m) => m.cap.length).map((m) => sqName(m.to)).sort(), ['c7', 'e5']);
 });
 
 test('Erster Schlag nicht rückwärts', () => {

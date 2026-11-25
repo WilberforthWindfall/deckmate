@@ -82,7 +82,7 @@ export const SIDE_NAME: Record<Side, string> = { M: 'Mannschaft', O: 'Offiziere'
 export const opp = (s: Side): Side => (s === 'M' ? 'O' : 'M');
 
 export const PIECES: Record<PieceType, { n: string; s: Side; r: string }> = {
-  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorne, seitlich, diagonal. Der erste Schlag einer Serie geht Richtung Gegner, weitere Schläge auch rückwärts. Die Serie darf nach jedem Sprung beendet werden. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
+  stone: { n: 'Mannschaftsstein', s: 'M', r: 'Zieht 1 Feld diagonal vorwärts auf ein freies Feld (Dame). Schlägt durch Überspringen auf ein freies Feld: vorwärts, diagonal vorwärts oder seitwärts – auch in einer Schlagserie nie rückwärts. Die Serie darf nach jedem Sprung beendet werden. Erreicht der Stein das Achterdeck (Reihe 8), endet der Zug dort und er wird befördert.' },
   FL: { n: 'Captain', s: 'O', r: 'Zieht wie der König im Schach, auch die Rochade mit einem Mörser in der Ecke (beide noch nicht bewegt, Felder dazwischen frei). Wird er geschlagen, gewinnt die Mannschaft.' },
   CAP: { n: 'First Lieutenant', s: 'O', r: 'Zieht wie die Dame im Schach. Ergreift Ugur den Captain, übernimmt der First Lieutenant das Kommando.' },
   KAN: { n: 'Mörser', s: 'O', r: 'Zieht wie der Turm im Schach.' },
@@ -188,23 +188,25 @@ export function rawMoves(board: Square[], from: number, options: Options = DEFAU
   if (p.t === 'STW') return [];
 
   if (p.t === 'stone') {
-    const first = [[-1, 0], [-1, -1], [-1, 1], ...(options.sideFirst ? [[0, -1], [0, 1]] : [])];
-    const dfs = (cr: number, cc: number, jumped: number[], path: number[], isFirst: boolean) => {
+    // A stone jumps forwards, diagonally forwards or sideways – in every jump of a series, never backwards
+    // (tester feedback #50, 23.11.2026; before, later jumps of a series could also go backwards).
+    const dirs = [[-1, 0], [-1, -1], [-1, 1], ...(options.sideFirst ? [[0, -1], [0, 1]] : [])];
+    const dfs = (cr: number, cc: number, jumped: number[], path: number[]) => {
       // Reaching the Achterdeck (rank 8) ends the series at once: the stone is promoted there (beta feedback 30.10.2026).
       if (jumped.length && cr === 0) { series.push({ from, to: idx(cr, cc), cap: jumped, path }); return; }
       // A series may be stopped after any jump (rule clarification 30.10.2026): every landing square is a legal end.
       if (jumped.length) series.push({ from, to: idx(cr, cc), cap: jumped, path });
-      for (const [dr, dc] of isFirst ? first : D8) {
+      for (const [dr, dc] of dirs) {
         const mr = cr + dr, mc = cc + dc, lr = cr + 2 * dr, lc = cc + 2 * dc;
         if (!inB(lr, lc)) continue;
         const mi = idx(mr, mc), li = idx(lr, lc);
         if (!enemy(board[mi]) || jumped.includes(mi)) continue;
         if (board[li] && li !== from) continue;
-        dfs(lr, lc, [...jumped, mi], [...path, li], false);
+        dfs(lr, lc, [...jumped, mi], [...path, li]);
       }
     };
     const series: Move[] = [];
-    dfs(r, c, [], [], true);
+    dfs(r, c, [], []);
     // One move per target square: the one that captures most.
     const best = new Map<number, Move>();
     for (const m of series) { const b = best.get(m.to); if (!b || m.cap.length > b.cap.length) best.set(m.to, m); }

@@ -13,6 +13,7 @@ import { LibraryList, Replay } from './pages/Library.tsx';
 import { lazy, Suspense } from 'react';
 const DevTwoPlayer = import.meta.env.DEV ? lazy(() => import('./pages/DevTwoPlayer.tsx')) : null;
 const DevPieces = import.meta.env.DEV ? lazy(() => import('./pages/DevPieces.tsx')) : null;
+import UpdateBanner from './components/UpdateBanner.tsx';
 import './styles.css';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -24,6 +25,7 @@ function Protected({ children }: { children: JSX.Element }) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
+      <UpdateBanner />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Protected><Lobby /></Protected>} />

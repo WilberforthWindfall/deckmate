@@ -5,6 +5,7 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from './firebase.ts';
 import { act, actorOf, type Action } from './game/actions.ts';
+import { ensureFresh } from './version.ts';
 import { DEFAULT_OPTIONS, newGame, opp, type GameState, type Options, type Side } from './game/rules.ts';
 import { addToKasse, newCoins, type Kasse } from './stewardkasse.ts';
 import { battleGame, newCampaign, type Campaign, type CampaignOptions } from './campaign/engine.ts';
@@ -49,6 +50,7 @@ const gamesCol = collection(db, 'games');
 const nameOf = (u: User) => u.displayName || u.email?.split('@')[0] || 'Unbekannt';
 
 export async function createGame(user: User, name: string, side: Side, options: Options = DEFAULT_OPTIONS): Promise<string> {
+  await ensureFresh();
   const players: Record<Side, string | null> = { M: null, O: null };
   const names: Record<Side, string | null> = { M: null, O: null };
   players[side] = user.uid;
@@ -196,6 +198,7 @@ export async function joinGame(user: User, id: string): Promise<Side> {
 
 /** Applies a player action inside a transaction, so two browsers can never write over each other. */
 export async function sendAction(user: User, id: string, a: Action): Promise<void> {
+  await ensureFresh();
   let coins: Kasse = {};
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'games', id);
@@ -224,6 +227,7 @@ export async function sendAction(user: User, id: string, a: Action): Promise<voi
 }
 
 export async function rematch(user: User, g: GameDoc): Promise<string> {
+  await ensureFresh();
   const players = { M: g.players.O, O: g.players.M };
   const names = { M: g.names.O, O: g.names.M };
   const ref = await addDoc(gamesCol, {
